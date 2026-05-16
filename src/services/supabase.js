@@ -1,12 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 import { config } from '../config.js';
 
-// Cria cliente do Supabase usando a Service Key (acesso admin)
-const supabase = createClient(config.supabase.url, config.supabase.serviceKey);
+// Cria cliente do Supabase com WebSocket explícito (Node 20 compatibility)
+const supabase = createClient(config.supabase.url, config.supabase.serviceKey, {
+  auth: {
+    persistSession: false,
+  },
+  realtime: {
+    transport: ws,
+  },
+  global: {
+    headers: {
+      'X-Client-Info': 'cia-fitness-mila',
+    },
+  },
+});
 
 /**
  * Busca um lead pelo número de telefone.
- * Retorna o lead ou null se não existir.
  */
 export async function buscarLeadPorTelefone(telefone) {
   const { data, error } = await supabase
@@ -16,7 +28,6 @@ export async function buscarLeadPorTelefone(telefone) {
     .single();
 
   if (error && error.code !== 'PGRST116') {
-    // PGRST116 = "nenhuma linha encontrada", não é erro real
     console.error('Erro ao buscar lead:', error);
     throw error;
   }
@@ -25,8 +36,7 @@ export async function buscarLeadPorTelefone(telefone) {
 }
 
 /**
- * Cria um lead novo no banco.
- * Retorna o lead criado.
+ * Cria um lead novo.
  */
 export async function criarLead({ telefone, nome, campanhaOrigem }) {
   const { data, error } = await supabase
@@ -51,7 +61,6 @@ export async function criarLead({ telefone, nome, campanhaOrigem }) {
 
 /**
  * Busca ou cria um lead.
- * Se não existir, cria. Se existir, retorna o existente.
  */
 export async function buscarOuCriarLead({ telefone, nome, campanhaOrigem }) {
   let lead = await buscarLeadPorTelefone(telefone);
@@ -64,15 +73,15 @@ export async function buscarOuCriarLead({ telefone, nome, campanhaOrigem }) {
 }
 
 /**
- * Salva uma mensagem no histórico.
+ * Salva uma mensagem.
  */
 export async function salvarMensagem({ leadId, direcao, origem, conteudo, tipo = 'texto' }) {
   const { data, error } = await supabase
     .from('mensagens')
     .insert({
       lead_id: leadId,
-      direcao, // 'entrada' ou 'saida'
-      origem, // 'mila', 'humano', 'lead'
+      direcao,
+      origem,
       conteudo,
       tipo,
     })
@@ -84,7 +93,6 @@ export async function salvarMensagem({ leadId, direcao, origem, conteudo, tipo =
     throw error;
   }
 
-  // Atualiza ultima_interacao_em do lead
   await supabase
     .from('leads')
     .update({ ultima_interacao_em: new Date().toISOString() })
@@ -94,7 +102,7 @@ export async function salvarMensagem({ leadId, direcao, origem, conteudo, tipo =
 }
 
 /**
- * Busca o histórico de mensagens de um lead (últimas N).
+ * Busca histórico de mensagens.
  */
 export async function buscarHistorico(leadId, limite = 20) {
   const { data, error } = await supabase
@@ -113,7 +121,7 @@ export async function buscarHistorico(leadId, limite = 20) {
 }
 
 /**
- * Atualiza o status de um lead (ativo, transferido, encerrado, matriculado).
+ * Atualiza status do lead.
  */
 export async function atualizarStatusLead(leadId, novoStatus, observacoes = null) {
   const update = { status: novoStatus };
@@ -136,8 +144,7 @@ export async function atualizarStatusLead(leadId, novoStatus, observacoes = null
 }
 
 /**
- * Busca leads que precisam de follow-up no dia específico.
- * Retorna lista de leads + qual mensagem disparar.
+ * Busca leads pra follow-up.
  */
 export async function buscarLeadsParaFollowup(dia) {
   const horasAtras = { 1: 24, 3: 72, 7: 168, 14: 336 }[dia];
@@ -145,16 +152,9 @@ export async function buscarLeadsParaFollowup(dia) {
 
   const limiteData = new Date(Date.now() - horasAtras * 60 * 60 * 1000).toISOString();
 
-  // Busca leads:
-  // - Status 'ativo' (não transferido nem encerrado)
-  // - Última interação há exatamente N horas
-  // - Que ainda não receberam follow-up do dia X
   const { data, error } = await supabase
     .from('leads')
-    .select(`
-      *,
-      followups (dia)
-    `)
+    .select(`*, followups (dia)`)
     .eq('status', 'ativo')
     .lt('ultima_interacao_em', limiteData);
 
@@ -163,7 +163,6 @@ export async function buscarLeadsParaFollowup(dia) {
     throw error;
   }
 
-  // Filtra leads que ainda não receberam o follow-up do dia X
   const leadsParaProcessar = (data || []).filter((lead) => {
     const followupsRecebidos = (lead.followups || []).map((f) => f.dia);
     return !followupsRecebidos.includes(dia);
@@ -173,7 +172,7 @@ export async function buscarLeadsParaFollowup(dia) {
 }
 
 /**
- * Registra que um follow-up foi disparado.
+ * Registra follow-up disparado.
  */
 export async function registrarFollowup(leadId, dia, status = 'enviado') {
   const { data, error } = await supabase
@@ -196,8 +195,7 @@ export async function registrarFollowup(leadId, dia, status = 'enviado') {
 }
 
 /**
- * Verifica se a última mensagem foi enviada manualmente (humano operando).
- * Se sim, a Mila fica em silêncio.
+ * Verifica se última mensagem foi de humano.
  */
 export async function ultimaMensagemFoiHumana(leadId) {
   const { data } = await supabase
