@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "description": "Assistente virtual de WhatsApp da Cia do Fitness",
   "main": "src/server.js",
+  "type": "module",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "22.x"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -16,7 +17,8 @@
     "@supabase/supabase-js": "^2.39.0",
     "axios": "^1.6.0",
     "dotenv": "^16.3.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "ws": "^8.16.0"
   },
   "private": true
 }
