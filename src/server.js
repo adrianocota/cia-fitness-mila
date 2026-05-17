@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { processarWebhook } from './handlers/webhookHandler.js';
 import { rodarFollowups } from './handlers/followupHandler.js';
 import { verificarConexao } from './services/zapi.js';
+import { limparCache } from './lib/promptBuilder.js';
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -49,7 +50,6 @@ app.get('/health', async (req, res) => {
  */
 app.post('/webhook', async (req, res) => {
   res.status(200).json({ received: true });
-
   try {
     await processarWebhook(req.body);
   } catch (error) {
@@ -66,10 +66,31 @@ app.post('/trigger-followup', async (req, res) => {
   if (token !== config.zapi.token) {
     return res.status(403).json({ error: 'forbidden' });
   }
-
   try {
     await rodarFollowups();
     res.json({ status: 'follow-up executado' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rota de limpeza de cache do prompt.
+ * Útil quando a base de conhecimento é atualizada sem redeploy.
+ * Protegida pelo mesmo token da Z-API.
+ */
+app.post('/admin/cache/clear', (req, res) => {
+  const token = req.headers['x-secret-token'];
+  if (token !== config.zapi.token) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    limparCache();
+    res.json({
+      status: 'ok',
+      message: 'Cache limpo com sucesso. Próxima mensagem carrega a base atualizada.',
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -90,7 +111,6 @@ if (config.server.env === 'production') {
   }, {
     timezone: 'America/Sao_Paulo',
   });
-
   console.log('✅ Cron de follow-up agendado (a cada hora)');
 } else {
   console.log('🧪 Modo development: cron de follow-up desabilitado');
@@ -101,7 +121,6 @@ if (config.server.env === 'production') {
 // ================================================
 
 const PORT = config.server.port;
-
 app.listen(PORT, () => {
   console.log('═══════════════════════════════════════');
   console.log('🚀 Cia Fitness Mila — Backend iniciado');
@@ -111,6 +130,7 @@ app.listen(PORT, () => {
   console.log(`🎯 Modo Mila: ${config.mode.toUpperCase()}`);
   console.log(`📞 Número Mila: ${config.mila.phoneNumber}`);
   console.log(`🔌 Webhook: POST /webhook`);
+  console.log(`🧹 Cache: POST /admin/cache/clear`);
   console.log('═══════════════════════════════════════');
 });
 
