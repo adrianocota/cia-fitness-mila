@@ -18,6 +18,26 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceKey, {
 });
 
 /**
+ * Grava um log de erro ou evento no Supabase.
+ * Nunca lança exceção — log não pode derrubar o fluxo principal.
+ */
+export async function gravarLog({ nivel = 'erro', contexto, mensagem, telefone = null, leadId = null, payload = null }) {
+  try {
+    await supabase.from('error_logs').insert({
+      nivel,
+      contexto,
+      mensagem,
+      telefone,
+      lead_id: leadId,
+      payload,
+    });
+  } catch (err) {
+    // Falha silenciosa — log não pode derrubar o sistema
+    console.error('⚠️ Falha ao gravar log:', err.message);
+  }
+}
+
+/**
  * Verifica se um messageId já foi processado.
  * Retorna true se for duplicado (já existe), false se for novo.
  */
@@ -30,7 +50,6 @@ export async function verificarDuplicata(messageId) {
       .insert({ message_id: messageId });
 
     if (error) {
-      // Código 23505 = violação de unique constraint = duplicata
       if (error.code === '23505') {
         console.log(`⚠️ Webhook duplicado ignorado: ${messageId}`);
         return true;
@@ -103,7 +122,6 @@ export async function buscarOuCriarLead({ telefone, nome, campanhaOrigem }) {
 
 /**
  * Reativa um lead encerrado que voltou a falar.
- * Retorna o lead atualizado e se deve retomar contexto ou começar do zero.
  */
 export async function reativarLead(lead) {
   const DIAS_LIMITE = 30;
