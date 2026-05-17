@@ -45,6 +45,22 @@ function detectarCrise(texto) {
   return PALAVRAS_CRISE.some((r) => r.test(texto));
 }
 
+/**
+ * Verifica se o lead transferido ainda está dentro da janela de silêncio (4 horas).
+ * Se sim, Mila fica em silêncio. Se passou a janela, Mila pode voltar a responder.
+ */
+function dentroJanelaSilencio(lead) {
+  if (lead.status !== 'transferido') return false;
+  if (!lead.ultima_interacao_em) return false;
+
+  const JANELA_HORAS = 4;
+  const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
+  const agora = Date.now();
+  const diferencaHoras = (agora - ultimaInteracao) / (1000 * 60 * 60);
+
+  return diferencaHoras < JANELA_HORAS;
+}
+
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
@@ -163,11 +179,26 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Se o lead foi transferido E humano respondeu por último, Mila fica em silêncio
+  // Janela de silêncio pós-escalação (4 horas)
+  // Se transferido e dentro da janela, Mila fica em silêncio SEMPRE
+  // independente de humano ter respondido ou não
+  if (dentroJanelaSilencio(lead)) {
+    console.log(`🤝 Lead ${lead.id} transferido e dentro da janela de silêncio. Mila em silêncio.`);
+    await salvarMensagem({
+      leadId: lead.id,
+      direcao: 'entrada',
+      origem: 'lead',
+      conteudo,
+      tipo,
+    });
+    return;
+  }
+
+  // Se transferido mas fora da janela de silêncio (4h+), verifica se humano ainda está ativo
   if (lead.status === 'transferido') {
     const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
     if (humanoAtivo) {
-      console.log(`🤝 Lead ${lead.id} está sendo atendido por humano. Mila em silêncio.`);
+      console.log(`🤝 Lead ${lead.id} sendo atendido por humano. Mila em silêncio.`);
       await salvarMensagem({
         leadId: lead.id,
         direcao: 'entrada',
@@ -177,6 +208,8 @@ export async function processarWebhook(webhookBody) {
       });
       return;
     }
+    // Humano não respondeu após 4h — Mila retoma o atendimento
+    console.log(`🔄 Lead ${lead.id} transferido há mais de 4h sem resposta humana. Mila retomando.`);
   }
 
   // Salva a mensagem do lead no histórico
