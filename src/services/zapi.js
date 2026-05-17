@@ -8,26 +8,80 @@ const zapi = axios.create({
     'Content-Type': 'application/json',
     'Client-Token': config.zapi.clientToken,
   },
-  timeout: 15000, // 15 segundos
+  timeout: 15000,
 });
 
 /**
- * Envia mensagem de texto pra um número.
+ * Calcula delay realista baseado no tamanho da mensagem.
+ * Simula tempo de digitação humana.
  *
- * @param {string} phone - Número no formato 5531999999999 (sem + nem espaços)
+ * @param {string} message - Texto da mensagem
+ * @returns {number} delay em milissegundos
+ */
+function calcularDelayDigitacao(message) {
+  const chars = message.length;
+  // 1 segundo por cada 30 caracteres, mínimo 2s, máximo 8s
+  const delay = Math.min(Math.max(Math.floor(chars / 30) * 1000, 2000), 8000);
+  return delay;
+}
+
+/**
+ * Aguarda N milissegundos.
+ */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Envia o status "digitando..." pro número via Z-API.
+ *
+ * @param {string} phone - Número destino
+ * @param {string} status - 'composing' (digitando) ou 'available' (parou)
+ */
+async function enviarPresenca(phone, status) {
+  try {
+    await zapi.post('/presence', {
+      phone,
+      status,
+    });
+  } catch (error) {
+    // Não quebra o fluxo se falhar — é só cosmético
+    console.warn(`⚠️ Falha ao enviar presença (${status}):`, error.message);
+  }
+}
+
+/**
+ * Envia mensagem de texto pra um número.
+ * Simula digitação humana antes de enviar.
+ *
+ * @param {string} phone - Número no formato 5531999999999
  * @param {string} message - Texto da mensagem
  * @returns {Promise<Object>} resposta da Z-API
  */
 export async function enviarTexto(phone, message) {
   try {
+    const delay = calcularDelayDigitacao(message);
+
+    // 1. Ativa "digitando..."
+    await enviarPresenca(phone, 'composing');
+
+    // 2. Aguarda tempo proporcional ao tamanho da mensagem
+    await sleep(delay);
+
+    // 3. Envia a mensagem de fato
     const response = await zapi.post('/send-text', {
       phone,
       message,
     });
 
-    console.log(`📤 Mensagem enviada pra ${phone}`);
+    // 4. Para o "digitando..."
+    await enviarPresenca(phone, 'available');
+
+    console.log(`📤 Mensagem enviada pra ${phone} (delay: ${delay}ms)`);
     return response.data;
   } catch (error) {
+    // Garante que o "digitando" para mesmo se der erro
+    await enviarPresenca(phone, 'available').catch(() => {});
     console.error(`❌ Erro ao enviar texto pra ${phone}:`, error.response?.data || error.message);
     throw error;
   }
@@ -35,11 +89,6 @@ export async function enviarTexto(phone, message) {
 
 /**
  * Envia imagem pra um número (a partir de URL pública).
- *
- * @param {string} phone - Número destino
- * @param {string} imageUrl - URL pública da imagem (deve ser acessível externamente)
- * @param {string} caption - Legenda opcional
- * @returns {Promise<Object>}
  */
 export async function enviarImagem(phone, imageUrl, caption = '') {
   try {
@@ -59,10 +108,7 @@ export async function enviarImagem(phone, imageUrl, caption = '') {
 
 /**
  * Envia mensagem pra um grupo do WhatsApp.
- *
- * @param {string} groupId - ID do grupo (formato: 120363xxxxxxxxxxxxx@g.us)
- * @param {string} message - Mensagem a enviar
- * @returns {Promise<Object>}
+ * Sem delay de digitação — notificações internas não precisam parecer humanas.
  */
 export async function enviarMensagemGrupo(groupId, message) {
   try {
@@ -81,8 +127,6 @@ export async function enviarMensagemGrupo(groupId, message) {
 
 /**
  * Verifica se a instância da Z-API está conectada com o WhatsApp.
- *
- * @returns {Promise<boolean>}
  */
 export async function verificarConexao() {
   try {
@@ -98,39 +142,24 @@ export async function verificarConexao() {
 }
 
 /**
- * Detecta se uma mensagem recebida via webhook foi enviada pelo próprio número da Mila
- * (humano operando manualmente pelo painel).
- *
- * @param {Object} webhook - Dados do webhook recebido
- * @returns {boolean} true se foi humano operando manualmente
+ * Detecta se uma mensagem recebida via webhook foi enviada pelo próprio número da Mila.
  */
 export function ehMensagemDeHumano(webhook) {
-  // Se a mensagem foi enviada pelo próprio número da Mila (não recebida),
-  // significa que um humano usou o painel da Z-API ou o WhatsApp Business diretamente
   return webhook?.fromMe === true && webhook?.isStatusReply !== true;
 }
 
 /**
  * Extrai dados úteis de um webhook de mensagem recebida.
- * Padroniza o formato dos campos pra usar no resto do código.
- *
- * @param {Object} webhook - Body do webhook da Z-API
- * @returns {Object|null} mensagem padronizada ou null se inválida
  */
 export function parsearWebhook(webhook) {
   if (!webhook || typeof webhook !== 'object') return null;
 
-  // Ignora mensagens de status, atualizações, etc.
   if (webhook.isStatusReply || webhook.isGroup) return null;
-
-  // Ignora mensagens próprias (já tratadas em ehMensagemDeHumano)
   if (webhook.fromMe) return null;
 
-  // Pega o número do remetente
   const phone = webhook.phone;
   if (!phone) return null;
 
-  // Pega o conteúdo da mensagem (pode ser texto ou outro tipo)
   let conteudo = '';
   let tipo = 'texto';
 
@@ -150,7 +179,7 @@ export function parsearWebhook(webhook) {
     conteudo = '[documento]';
     tipo = 'documento';
   } else {
-    return null; // Tipo desconhecido, ignora
+    return null;
   }
 
   return {
