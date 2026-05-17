@@ -1,193 +1,105 @@
-import { config, isTestMode } from '../config.js';
-import {
-  parsearWebhook,
-  ehMensagemDeHumano,
-  enviarTexto,
-} from '../services/zapi.js';
-import {
-  buscarOuCriarLead,
-  buscarHistorico,
-  salvarMensagem,
-  ultimaMensagemFoiHumana,
-} from '../services/supabase.js';
-import { gerarResposta, detectarEscalacao } from '../services/openai.js';
-import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
-import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
-import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { config } from '../config.js';
+
+// __dirname não existe em ES modules, então fazemos manualmente
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Caminho da pasta data (relativo a este arquivo)
+const DATA_DIR = path.join(__dirname, '..', 'data');
 
 /**
- * Handler principal de webhooks da Z-API.
- * Recebe a notificação de nova mensagem e decide o que fazer.
- *
- * @param {Object} webhookBody - Body do webhook (já como objeto JS)
+ * Cache simples pra não ler os arquivos de markdown a cada mensagem.
+ * Recarrega automaticamente se o arquivo mudar (em produção, requer redeploy).
  */
-export async function processarWebhook(webhookBody) {
-  console.log('📥 Webhook recebido');
+let cacheBaseConhecimento = null;
+let cacheOfertaVigente = null;
 
-  // Filtro: ignora qualquer mensagem vinda de grupo (evita lead-lixo no banco).
-  // A Mila opera só em conversas 1-a-1 com leads. Grupos (inclusive o de notificação
-  // interna) não devem virar lead nem disparar fluxo de atendimento.
-  const phoneOrigem = webhookBody.phone || '';
-  if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
-    console.log(`🔕 Mensagem de grupo ignorada (${phoneOrigem})`);
-    return;
-  }
-
-  // Caso 1: Mensagem é da própria Mila/humano operando manualmente
-  // (responder pelo painel da Z-API ou WhatsApp Business direto)
-  if (ehMensagemDeHumano(webhookBody)) {
-    console.log('👤 Mensagem manual de humano detectada. Mila não vai responder nessa conversa.');
-
-    // Salva no histórico pra Mila saber que humano respondeu
-    const phone = webhookBody.phone;
-    if (phone) {
-      try {
-        const lead = await buscarOuCriarLead({ telefone: phone });
-        const conteudo = webhookBody.text?.message || '[mensagem do humano]';
-        await salvarMensagem({
-          leadId: lead.id,
-          direcao: 'saida',
-          origem: 'humano',
-          conteudo,
-        });
-      } catch (error) {
-        console.error('Erro ao salvar mensagem do humano:', error.message);
-      }
-    }
-    return;
-  }
-
-  // Caso 2: Mensagem de entrada (lead falou)
-  const mensagem = parsearWebhook(webhookBody);
-  if (!mensagem) {
-    console.log('⚠️ Webhook ignorado (formato não reconhecido)');
-    return;
-  }
-
-  const { phone, nome, conteudo, tipo } = mensagem;
-
-  // Validação modo teste
-  if (isTestMode() && phone !== config.testPhoneNumber) {
-    console.log(`🧪 Modo teste ativo. Ignorando mensagem de ${phone} (autorizado: ${config.testPhoneNumber}).`);
-    return;
-  }
-
-  // Identifica ou cria lead
-  let lead;
+function lerArquivo(nomeArquivo) {
+  const caminho = path.join(DATA_DIR, nomeArquivo);
   try {
-    lead = await buscarOuCriarLead({
-      telefone: phone,
-      nome,
-      campanhaOrigem: null, // futuramente: extrair do Meta Ads
-    });
+    return fs.readFileSync(caminho, 'utf8');
   } catch (error) {
-    console.error('❌ Erro ao buscar/criar lead:', error.message);
-    return;
+    console.error(`❌ Erro ao ler ${nomeArquivo}:`, error.message);
+    throw new Error(`Arquivo ${nomeArquivo} não encontrado em ${DATA_DIR}`);
   }
+}
 
-  // Se o lead já está com status 'encerrado', não responde
-  if (lead.status === 'encerrado') {
-    console.log(`🛑 Lead ${lead.id} está encerrado. Mila não vai responder.`);
-    // Mas registra a mensagem mesmo assim, pra histórico
-    await salvarMensagem({
-      leadId: lead.id,
-      direcao: 'entrada',
-      origem: 'lead',
-      conteudo,
-      tipo,
-    });
-    return;
+function getBaseConhecimento() {
+  if (!cacheBaseConhecimento) {
+    cacheBaseConhecimento = lerArquivo('base_conhecimento.md');
   }
+  return cacheBaseConhecimento;
+}
 
-  // Se o lead foi transferido recentemente E humano respondeu por último,
-  // Mila fica em silêncio
-  if (lead.status === 'transferido') {
-    const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
-    if (humanoAtivo) {
-      console.log(`🤝 Lead ${lead.id} está sendo atendido por humano. Mila em silêncio.`);
-      await salvarMensagem({
-        leadId: lead.id,
-        direcao: 'entrada',
-        origem: 'lead',
-        conteudo,
-        tipo,
-      });
-      return;
-    }
+function getOfertaVigente() {
+  if (!cacheOfertaVigente) {
+    cacheOfertaVigente = lerArquivo('oferta_vigente.md');
   }
+  return cacheOfertaVigente;
+}
 
-  // Salva a mensagem do lead no histórico
-  await salvarMensagem({
-    leadId: lead.id,
-    direcao: 'entrada',
-    origem: 'lead',
-    conteudo,
-    tipo,
-  });
+/**
+ * Monta o prompt do sistema que vai pra OpenAI.
+ * Junta a base de conhecimento + oferta vigente + instruções operacionais.
+ *
+ * @returns {string} O prompt completo pro modelo
+ */
+export function montarSystemPrompt() {
+  const baseConhecimento = getBaseConhecimento();
+  const ofertaVigente = getOfertaVigente();
 
-  // === DECISÕES SOBRE COMO RESPONDER ===
+  return `Você é Mila, atendente virtual da Cia do Fitness. Siga RIGOROSAMENTE as instruções abaixo.
 
-  // 1. Mensagem pode ser "fechamento rápido" (heurística)
-  if (querFecharMatricula(conteudo)) {
-    console.log('🎯 Lead quer fechar matrícula. Transferindo direto pro humano.');
-    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula' });
-    return;
-  }
+═══════════════════════════════════════════════════════
+BASE DE CONHECIMENTO (informações da Cia, como você se comporta, exemplos de resposta):
+═══════════════════════════════════════════════════════
 
-  // 2. Classifica intenção (evasiva, engajamento, encerramento)
-  const classificacao = await classificarMensagem(conteudo);
+${baseConhecimento}
 
-  // Se for encerramento explícito, despede e marca como encerrado
-  if (classificacao === 'encerramento') {
-    console.log('🛑 Lead pediu pra encerrar. Despedindo.');
-    await encerrarLead(lead, 'lead expressou desinteresse');
-    return;
-  }
+═══════════════════════════════════════════════════════
+CAMPANHA ATUALMENTE VIGENTE (o que o lead acabou de ver no anúncio):
+═══════════════════════════════════════════════════════
 
-  // 3. Busca histórico pra dar contexto pra IA
-  const historicoBruto = await buscarHistorico(lead.id, 10);
-  // Remove a mensagem que acabou de entrar (já vamos passar como 'mensagemNova')
-  const historicoSemUltima = historicoBruto.slice(0, -1);
-  const historicoFormatado = formatarHistorico(historicoSemUltima);
+${ofertaVigente}
 
-  // 4. Detecta se a conversa exige escalação (lead pediu visita, valor de multa, etc.)
-  const { escalar, motivo } = await detectarEscalacao({
-    historico: historicoFormatado,
-    mensagemNova: conteudo,
-  });
+═══════════════════════════════════════════════════════
+INSTRUÇÕES OPERACIONAIS FINAIS:
+═══════════════════════════════════════════════════════
 
-  if (escalar) {
-    console.log(`🔥 Escalação detectada pela IA: ${motivo}`);
-    await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado' });
-    return;
-  }
+- Responda SEMPRE em português brasileiro natural, como em WhatsApp.
+- Mantenha respostas CURTAS (1-3 frases na maioria das vezes). WhatsApp não é e-mail.
+- Use o nome do lead quando relevante, mas não em toda mensagem.
+- NUNCA invente informações que não estejam nesta base.
+- NUNCA use travessões (—) nem traços longos (–). Use vírgula, ponto, dois pontos.
+- Se o lead pedir algo que requer humano (fechar matrícula, agendar com hora, etc.), conduza pra transferência de forma natural.
+- Sua única função é atender este lead. Foque nele.
+`.trim();
+}
 
-  // 5. Gera resposta normal da Mila
-  let resposta;
-  try {
-    const systemPrompt = montarSystemPrompt();
-    resposta = await gerarResposta({
-      systemPrompt,
-      historico: historicoFormatado,
-      mensagemNova: conteudo,
-    });
-  } catch (error) {
-    console.error('❌ Erro ao gerar resposta da Mila:', error.message);
-    // Fallback: resposta genérica
-    resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
-  }
+/**
+ * Converte o histórico de mensagens do banco em formato OpenAI.
+ *
+ * Mensagens com direcao='entrada' viram role='user' (lead falou).
+ * Mensagens com direcao='saida' viram role='assistant' (Mila respondeu).
+ *
+ * @param {Array} mensagens - Mensagens vindas do Supabase
+ * @returns {Array} Array no formato esperado pela OpenAI
+ */
+export function formatarHistorico(mensagens) {
+  return mensagens.map((m) => ({
+    role: m.direcao === 'entrada' ? 'user' : 'assistant',
+    content: m.conteudo,
+  }));
+}
 
-  // 6. Envia resposta
-  try {
-    await enviarTexto(phone, resposta);
-    await salvarMensagem({
-      leadId: lead.id,
-      direcao: 'saida',
-      origem: 'mila',
-      conteudo: resposta,
-    });
-    console.log(`✅ Mila respondeu pro lead ${lead.id}`);
-  } catch (error) {
-    console.error('❌ Erro ao enviar resposta:', error.message);
-  }
+/**
+ * Limpa cache (útil em desenvolvimento e quando arquivos forem atualizados via webhook do GitHub)
+ */
+export function limparCache() {
+  cacheBaseConhecimento = null;
+  cacheOfertaVigente = null;
+  console.log('✅ Cache de prompt limpo');
 }
