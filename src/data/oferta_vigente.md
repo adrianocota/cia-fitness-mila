@@ -36,7 +36,7 @@ R$ 95,00/mês
 ### Restrições importantes que o lead PRECISA saber
 - Horário restrito: só segunda a sexta, das 11h às 15h
 - Não inclui aulas coletivas (nesse horário não há aulas)
-- Avaliação física (R$ 100) e consulta nutricional (R$ 150) pagas à parte
+- Avaliação física (R$ 100) e consulta nutricional (R$ 150) pagas à parte — ATENÇÃO: isso é restrição exclusiva do Plano Econômico. No Plano Anual Livre a consulta nutricional está INCLUSA na adesão gratuita.
 - Fidelidade de 12 meses (contrato anual)
 
 ### Formas de pagamento
