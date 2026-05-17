@@ -145,7 +145,7 @@ export async function processarWebhook(webhookBody) {
   }
 
   // 3. Busca histórico pra dar contexto pra IA
-  const historicoBruto = await buscarHistorico(lead.id, 20);
+  const historicoBruto = await buscarHistorico(lead.id, 10);
   // Remove a mensagem que acabou de entrar (já vamos passar como 'mensagemNova')
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
