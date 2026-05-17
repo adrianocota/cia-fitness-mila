@@ -9,6 +9,7 @@ import {
   buscarHistorico,
   salvarMensagem,
   ultimaMensagemFoiHumana,
+  verificarDuplicata,
 } from '../services/supabase.js';
 import { gerarResposta, detectarEscalacao } from '../services/openai.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
@@ -46,6 +47,13 @@ function detectarCrise(texto) {
 
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
+
+  // Deduplicação: ignora webhooks já processados
+  const messageId = webhookBody.messageId || webhookBody.id || null;
+  if (messageId) {
+    const duplicata = await verificarDuplicata(messageId);
+    if (duplicata) return;
+  }
 
   // Filtro: ignora mensagens de grupo
   const phoneOrigem = webhookBody.phone || '';
