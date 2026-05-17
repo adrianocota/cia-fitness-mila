@@ -11,6 +11,7 @@ import {
   ultimaMensagemFoiHumana,
   verificarDuplicata,
   reativarLead,
+  gravarLog,
 } from '../services/supabase.js';
 import { gerarResposta, detectarEscalacao } from '../services/openai.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
@@ -94,6 +95,12 @@ export async function processarWebhook(webhookBody) {
         });
       } catch (error) {
         console.error('Erro ao salvar mensagem do humano:', error.message);
+        await gravarLog({
+          contexto: 'webhook',
+          mensagem: 'Erro ao salvar mensagem do humano',
+          telefone: webhookBody.phone,
+          payload: { erro: error.message },
+        });
       }
     }
     return;
@@ -124,6 +131,12 @@ export async function processarWebhook(webhookBody) {
     });
   } catch (error) {
     console.error('❌ Erro ao buscar/criar lead:', error.message);
+    await gravarLog({
+      contexto: 'supabase',
+      mensagem: 'Erro ao buscar ou criar lead',
+      telefone: phone,
+      payload: { erro: error.message },
+    });
     return;
   }
 
@@ -146,8 +159,22 @@ export async function processarWebhook(webhookBody) {
         lead,
         motivo: 'situação de cuidado emocional — lead mencionou pensamentos graves',
       });
+      await gravarLog({
+        nivel: 'aviso',
+        contexto: 'webhook',
+        mensagem: 'Protocolo de crise emocional acionado',
+        telefone: phone,
+        leadId: lead.id,
+      });
     } catch (error) {
       console.error('❌ Erro ao tratar crise emocional:', error.message);
+      await gravarLog({
+        contexto: 'webhook',
+        mensagem: 'Erro ao tratar crise emocional',
+        telefone: phone,
+        leadId: lead.id,
+        payload: { erro: error.message },
+      });
     }
     return;
   }
@@ -173,7 +200,6 @@ export async function processarWebhook(webhookBody) {
       const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
       lead = leadReativado;
 
-      // Salva a mensagem antes de responder
       await salvarMensagem({
         leadId: lead.id,
         direcao: 'entrada',
@@ -182,18 +208,15 @@ export async function processarWebhook(webhookBody) {
         tipo,
       });
 
-      // Monta contexto adicional pro system prompt dependendo do tempo passado
       const systemPrompt = montarSystemPrompt();
       let historicoFormatado = [];
 
       if (retomandoContexto) {
-        // Menos de 30 dias: retoma com histórico
         console.log(`📋 Retomando contexto (${diasPassados} dias atrás).`);
         const historicoBruto = await buscarHistorico(lead.id, 10);
         const historicoSemUltima = historicoBruto.slice(0, -1);
         historicoFormatado = formatarHistorico(historicoSemUltima);
       } else {
-        // Mais de 30 dias: começa do zero, sem histórico
         console.log(`🆕 Mais de 30 dias (${diasPassados} dias). Iniciando conversa do zero.`);
         historicoFormatado = [];
       }
@@ -216,6 +239,13 @@ export async function processarWebhook(webhookBody) {
       console.log(`✅ Lead reaberto e respondido.`);
     } catch (error) {
       console.error('❌ Erro ao reabrir lead:', error.message);
+      await gravarLog({
+        contexto: 'webhook',
+        mensagem: 'Erro ao reabrir lead encerrado',
+        telefone: phone,
+        leadId: lead.id,
+        payload: { erro: error.message },
+      });
     }
     return;
   }
@@ -247,7 +277,6 @@ export async function processarWebhook(webhookBody) {
       });
       return;
     }
-    // Humano não respondeu após 4h — Mila retoma o atendimento
     console.log(`🔄 Lead ${lead.id} transferido há mais de 4h sem resposta humana. Mila retomando.`);
   }
 
@@ -306,6 +335,13 @@ export async function processarWebhook(webhookBody) {
     });
   } catch (error) {
     console.error('❌ Erro ao gerar resposta da Mila:', error.message);
+    await gravarLog({
+      contexto: 'openai',
+      mensagem: 'Erro ao gerar resposta',
+      telefone: phone,
+      leadId: lead.id,
+      payload: { erro: error.message },
+    });
     resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
   }
 
@@ -321,5 +357,12 @@ export async function processarWebhook(webhookBody) {
     console.log(`✅ Mila respondeu pro lead ${lead.id}`);
   } catch (error) {
     console.error('❌ Erro ao enviar resposta:', error.message);
+    await gravarLog({
+      contexto: 'zapi',
+      mensagem: 'Erro ao enviar resposta pro lead',
+      telefone: phone,
+      leadId: lead.id,
+      payload: { erro: error.message, resposta },
+    });
   }
 }
