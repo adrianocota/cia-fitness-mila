@@ -35,7 +35,6 @@ export async function verificarDuplicata(messageId) {
         console.log(`⚠️ Webhook duplicado ignorado: ${messageId}`);
         return true;
       }
-      // Outro erro inesperado — deixa passar pra não bloquear atendimento
       console.error('Erro ao verificar duplicata:', error.message);
       return false;
     }
@@ -100,6 +99,43 @@ export async function buscarOuCriarLead({ telefone, nome, campanhaOrigem }) {
   }
 
   return lead;
+}
+
+/**
+ * Reativa um lead encerrado que voltou a falar.
+ * Retorna o lead atualizado e se deve retomar contexto ou começar do zero.
+ */
+export async function reativarLead(lead) {
+  const DIAS_LIMITE = 30;
+
+  const ultimaInteracao = lead.ultima_interacao_em
+    ? new Date(lead.ultima_interacao_em)
+    : null;
+
+  const diasPassados = ultimaInteracao
+    ? (Date.now() - ultimaInteracao.getTime()) / (1000 * 60 * 60 * 24)
+    : 999;
+
+  const retomandoContexto = diasPassados < DIAS_LIMITE;
+
+  const { data, error } = await supabase
+    .from('leads')
+    .update({
+      status: 'ativo',
+      observacoes: `Reativado após ${Math.floor(diasPassados)} dias. ${retomandoContexto ? 'Contexto retomado.' : 'Conversa reiniciada.'}`,
+      ultima_interacao_em: new Date().toISOString(),
+    })
+    .eq('id', lead.id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Erro ao reativar lead:', error);
+    throw error;
+  }
+
+  console.log(`🔄 Lead ${lead.id} reativado. Dias passados: ${Math.floor(diasPassados)}. Retomando contexto: ${retomandoContexto}`);
+  return { lead: data, retomandoContexto, diasPassados: Math.floor(diasPassados) };
 }
 
 /**
