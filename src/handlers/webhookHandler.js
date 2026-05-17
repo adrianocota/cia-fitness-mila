@@ -1,105 +1,190 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { config } from '../config.js';
-
-// __dirname não existe em ES modules, então fazemos manualmente
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Caminho da pasta data (relativo a este arquivo)
-const DATA_DIR = path.join(__dirname, '..', 'data');
+import { config, isTestMode } from '../config.js';
+import {
+  parsearWebhook,
+  ehMensagemDeHumano,
+  enviarTexto,
+} from '../services/zapi.js';
+import {
+  buscarOuCriarLead,
+  buscarHistorico,
+  salvarMensagem,
+  ultimaMensagemFoiHumana,
+} from '../services/supabase.js';
+import { gerarResposta, detectarEscalacao } from '../services/openai.js';
+import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
+import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
+import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 /**
- * Cache simples pra não ler os arquivos de markdown a cada mensagem.
- * Recarrega automaticamente se o arquivo mudar (em produção, requer redeploy).
+ * Extrai apenas o primeiro nome de um nome completo.
+ * "Adriano Cota" → "Adriano"
  */
-let cacheBaseConhecimento = null;
-let cacheOfertaVigente = null;
+function primeiroNome(nomeCompleto) {
+  if (!nomeCompleto) return null;
+  return nomeCompleto.trim().split(' ')[0];
+}
 
-function lerArquivo(nomeArquivo) {
-  const caminho = path.join(DATA_DIR, nomeArquivo);
+/**
+ * Handler principal de webhooks da Z-API.
+ */
+export async function processarWebhook(webhookBody) {
+  console.log('📥 Webhook recebido');
+
+  // Filtro: ignora qualquer mensagem vinda de grupo.
+  const phoneOrigem = webhookBody.phone || '';
+  if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
+    console.log(`🔕 Mensagem de grupo ignorada (${phoneOrigem})`);
+    return;
+  }
+
+  // Caso 1: Mensagem é da própria Mila/humano operando manualmente
+  if (ehMensagemDeHumano(webhookBody)) {
+    console.log('👤 Mensagem manual de humano detectada. Mila não vai responder nessa conversa.');
+
+    const phone = webhookBody.phone;
+    if (phone) {
+      try {
+        const lead = await buscarOuCriarLead({ telefone: phone });
+        const conteudo = webhookBody.text?.message || '[mensagem do humano]';
+        await salvarMensagem({
+          leadId: lead.id,
+          direcao: 'saida',
+          origem: 'humano',
+          conteudo,
+        });
+      } catch (error) {
+        console.error('Erro ao salvar mensagem do humano:', error.message);
+      }
+    }
+    return;
+  }
+
+  // Caso 2: Mensagem de entrada (lead falou)
+  const mensagem = parsearWebhook(webhookBody);
+  if (!mensagem) {
+    console.log('⚠️ Webhook ignorado (formato não reconhecido)');
+    return;
+  }
+
+  const { phone, nome, conteudo, tipo } = mensagem;
+
+  // Validação modo teste
+  if (isTestMode() && phone !== config.testPhoneNumber) {
+    console.log(`🧪 Modo teste ativo. Ignorando mensagem de ${phone} (autorizado: ${config.testPhoneNumber}).`);
+    return;
+  }
+
+  // Identifica ou cria lead (salva apenas o primeiro nome)
+  let lead;
   try {
-    return fs.readFileSync(caminho, 'utf8');
+    lead = await buscarOuCriarLead({
+      telefone: phone,
+      nome: primeiroNome(nome),
+      campanhaOrigem: null,
+    });
   } catch (error) {
-    console.error(`❌ Erro ao ler ${nomeArquivo}:`, error.message);
-    throw new Error(`Arquivo ${nomeArquivo} não encontrado em ${DATA_DIR}`);
+    console.error('❌ Erro ao buscar/criar lead:', error.message);
+    return;
   }
-}
 
-function getBaseConhecimento() {
-  if (!cacheBaseConhecimento) {
-    cacheBaseConhecimento = lerArquivo('base_conhecimento.md');
+  // Se o lead já está com status 'encerrado', não responde
+  if (lead.status === 'encerrado') {
+    console.log(`🛑 Lead ${lead.id} está encerrado. Mila não vai responder.`);
+    await salvarMensagem({
+      leadId: lead.id,
+      direcao: 'entrada',
+      origem: 'lead',
+      conteudo,
+      tipo,
+    });
+    return;
   }
-  return cacheBaseConhecimento;
-}
 
-function getOfertaVigente() {
-  if (!cacheOfertaVigente) {
-    cacheOfertaVigente = lerArquivo('oferta_vigente.md');
+  // Se o lead foi transferido E humano respondeu por último, Mila fica em silêncio
+  if (lead.status === 'transferido') {
+    const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
+    if (humanoAtivo) {
+      console.log(`🤝 Lead ${lead.id} está sendo atendido por humano. Mila em silêncio.`);
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'entrada',
+        origem: 'lead',
+        conteudo,
+        tipo,
+      });
+      return;
+    }
   }
-  return cacheOfertaVigente;
-}
 
-/**
- * Monta o prompt do sistema que vai pra OpenAI.
- * Junta a base de conhecimento + oferta vigente + instruções operacionais.
- *
- * @returns {string} O prompt completo pro modelo
- */
-export function montarSystemPrompt() {
-  const baseConhecimento = getBaseConhecimento();
-  const ofertaVigente = getOfertaVigente();
+  // Salva a mensagem do lead no histórico
+  await salvarMensagem({
+    leadId: lead.id,
+    direcao: 'entrada',
+    origem: 'lead',
+    conteudo,
+    tipo,
+  });
 
-  return `Você é Mila, atendente virtual da Cia do Fitness. Siga RIGOROSAMENTE as instruções abaixo.
+  // === DECISÕES SOBRE COMO RESPONDER ===
 
-═══════════════════════════════════════════════════════
-BASE DE CONHECIMENTO (informações da Cia, como você se comporta, exemplos de resposta):
-═══════════════════════════════════════════════════════
+  // 1. Fechamento rápido por heurística
+  if (querFecharMatricula(conteudo)) {
+    console.log('🎯 Lead quer fechar matrícula. Transferindo direto pro humano.');
+    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula' });
+    return;
+  }
 
-${baseConhecimento}
+  // 2. Classifica intenção
+  const classificacao = await classificarMensagem(conteudo);
 
-═══════════════════════════════════════════════════════
-CAMPANHA ATUALMENTE VIGENTE (o que o lead acabou de ver no anúncio):
-═══════════════════════════════════════════════════════
+  if (classificacao === 'encerramento') {
+    console.log('🛑 Lead pediu pra encerrar. Despedindo.');
+    await encerrarLead(lead, 'lead expressou desinteresse');
+    return;
+  }
 
-${ofertaVigente}
+  // 3. Busca histórico (últimas 10 mensagens)
+  const historicoBruto = await buscarHistorico(lead.id, 10);
+  const historicoSemUltima = historicoBruto.slice(0, -1);
+  const historicoFormatado = formatarHistorico(historicoSemUltima);
 
-═══════════════════════════════════════════════════════
-INSTRUÇÕES OPERACIONAIS FINAIS:
-═══════════════════════════════════════════════════════
+  // 4. Detecta escalação via IA
+  const { escalar, motivo } = await detectarEscalacao({
+    historico: historicoFormatado,
+    mensagemNova: conteudo,
+  });
 
-- Responda SEMPRE em português brasileiro natural, como em WhatsApp.
-- Mantenha respostas CURTAS (1-3 frases na maioria das vezes). WhatsApp não é e-mail.
-- Use o nome do lead quando relevante, mas não em toda mensagem.
-- NUNCA invente informações que não estejam nesta base.
-- NUNCA use travessões (—) nem traços longos (–). Use vírgula, ponto, dois pontos.
-- Se o lead pedir algo que requer humano (fechar matrícula, agendar com hora, etc.), conduza pra transferência de forma natural.
-- Sua única função é atender este lead. Foque nele.
-`.trim();
-}
+  if (escalar) {
+    console.log(`🔥 Escalação detectada pela IA: ${motivo}`);
+    await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado' });
+    return;
+  }
 
-/**
- * Converte o histórico de mensagens do banco em formato OpenAI.
- *
- * Mensagens com direcao='entrada' viram role='user' (lead falou).
- * Mensagens com direcao='saida' viram role='assistant' (Mila respondeu).
- *
- * @param {Array} mensagens - Mensagens vindas do Supabase
- * @returns {Array} Array no formato esperado pela OpenAI
- */
-export function formatarHistorico(mensagens) {
-  return mensagens.map((m) => ({
-    role: m.direcao === 'entrada' ? 'user' : 'assistant',
-    content: m.conteudo,
-  }));
-}
+  // 5. Gera resposta normal da Mila
+  let resposta;
+  try {
+    const systemPrompt = montarSystemPrompt();
+    resposta = await gerarResposta({
+      systemPrompt,
+      historico: historicoFormatado,
+      mensagemNova: conteudo,
+    });
+  } catch (error) {
+    console.error('❌ Erro ao gerar resposta da Mila:', error.message);
+    resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
+  }
 
-/**
- * Limpa cache (útil em desenvolvimento e quando arquivos forem atualizados via webhook do GitHub)
- */
-export function limparCache() {
-  cacheBaseConhecimento = null;
-  cacheOfertaVigente = null;
-  console.log('✅ Cache de prompt limpo');
+  // 6. Envia resposta
+  try {
+    await enviarTexto(phone, resposta);
+    await salvarMensagem({
+      leadId: lead.id,
+      direcao: 'saida',
+      origem: 'mila',
+      conteudo: resposta,
+    });
+    console.log(`✅ Mila respondeu pro lead ${lead.id}`);
+  } catch (error) {
+    console.error('❌ Erro ao enviar resposta:', error.message);
+  }
 }
