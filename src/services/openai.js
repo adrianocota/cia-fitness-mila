@@ -5,9 +5,6 @@ const openai = new OpenAI({
   apiKey: config.openai.apiKey,
 });
 
-/**
- * Gera resposta da Mila para uma conversa.
- */
 export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -24,10 +21,7 @@ export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
     });
 
     const resposta = completion.choices[0]?.message?.content?.trim();
-
-    if (!resposta) {
-      throw new Error('Resposta vazia da OpenAI');
-    }
+    if (!resposta) throw new Error('Resposta vazia da OpenAI');
 
     const tokens = completion.usage;
     console.log(`💬 OpenAI: ${tokens.prompt_tokens} in + ${tokens.completion_tokens} out = ${tokens.total_tokens} tokens`);
@@ -39,9 +33,6 @@ export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
   }
 }
 
-/**
- * Classifica a intenção da resposta do lead.
- */
 export async function classificarResposta(mensagemDoLead) {
   const prompt = `Você é um classificador de mensagens. Analise a mensagem abaixo de um lead de uma academia e classifique em UMA dessas 3 categorias:
 
@@ -80,14 +71,11 @@ Responda APENAS com a palavra da categoria (sem aspas, sem explicação):`;
   }
 }
 
-/**
- * Detecta se a conversa atingiu um gatilho de escalação pro humano.
- */
 export async function detectarEscalacao({ historico, mensagemNova }) {
   const prompt = `Você analisa conversas entre lead e atendente virtual de uma academia. Decida se essa conversa deve ser transferida pra atendente humano AGORA.
 
 CONTEXTO IMPORTANTE:
-Leads de academia frequentemente chegam dizendo "quero fazer academia", "quero treinar", "quero me matricular" logo na primeira mensagem. Isso é comportamento NORMAL de entrada e NÃO é gatilho de transferência. A atendente virtual deve qualificar o lead primeiro (entender horário disponível, objetivo, plano adequado) antes de transferir.
+Leads de academia frequentemente chegam dizendo "quero fazer academia", "quero treinar", "quero me matricular" logo na primeira mensagem. Isso é comportamento NORMAL de entrada e NÃO é gatilho de transferência. A atendente virtual deve qualificar o lead primeiro antes de transferir.
 
 GATILHOS REAIS DE TRANSFERÊNCIA (responda "SIM" apenas se um desses acontecer de forma clara e explícita):
 - Lead pediu explicitamente pra falar com pessoa humana ("quero falar com alguém", "passa pra atendente", "me liga", "quero falar com a recepção")
@@ -96,18 +84,21 @@ GATILHOS REAIS DE TRANSFERÊNCIA (responda "SIM" apenas se um desses acontecer d
 - Lead pediu desconto e insistiu mesmo após resposta padrão (segunda vez ou mais)
 - Lead perguntou valor de multa de cancelamento e insistiu (segunda vez ou mais)
 - Lead fez reclamação grave sobre a academia
-- Lead tem condição médica complexa que claramente requer avaliação presencial
-- Lead perguntou algo que a atendente virtual claramente não sabe responder e precisa de humano
+- Lead perguntou algo que a atendente virtual claramente não sabe responder
 
 NÃO É GATILHO — NUNCA transfira por esses motivos:
-- Lead disse "quero fazer academia", "quero treinar", "quero me matricular" (entrada normal da conversa)
+- Lead disse "quero fazer academia", "quero treinar", "quero me matricular" (entrada normal)
 - Lead perguntou sobre planos, preços, horários, modalidades, estrutura
 - Lead fez objeção simples de preço ou horário
-- Lead disse "vou pensar", "depois falo" ou outras respostas evasivas
+- Lead disse "vou pensar", "depois falo" ou respostas evasivas
 - Lead mencionou objetivo (emagrecer, ganhar massa) sem pedir agendamento concreto
-- Lead fez pergunta sobre professores, formação, estagiários
-- Lead perguntou sobre estacionamento, vestiário, estrutura
+- Lead perguntou sobre professores, formação, estagiários, equipamentos, vestiário, estacionamento
 - Lead está no início da conversa (primeiras 1-3 mensagens)
+- Lead mencionou condição de saúde (hérnia, lesão, diabetes, hipertensão, obesidade) — a atendente sabe responder isso
+- Lead é idoso e mencionou a idade — a atendente sabe acolher isso
+- Lead tem vergonha, medo de começar, ou baixa autoestima — a atendente deve acolher, não escalar
+- Lead mencionou evento de vida difícil (luto, perda de familiar, perda de pet, separação, doença na família) — a atendente deve acolher com empatia, não escalar
+- Lead está em momento emocional vulnerável e precisa de acolhimento, não de transferência
 
 Últimas mensagens da conversa:
 ${historico.slice(-6).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('\n')}
