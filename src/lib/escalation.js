@@ -3,17 +3,26 @@ import { enviarMensagemGrupo, enviarTexto } from '../services/zapi.js';
 import { atualizarStatusLead, buscarHistorico } from '../services/supabase.js';
 
 /**
+ * Extrai apenas o primeiro nome de um nome completo.
+ * "Adriano Cota" → "Adriano"
+ */
+function primeiroNome(nomeCompleto) {
+  if (!nomeCompleto) return '';
+  return nomeCompleto.trim().split(' ')[0];
+}
+
+/**
  * Mensagem que a Mila envia pro lead avisando que vai transferir pro humano.
  */
 const MENSAGEM_DESPEDIDA = (nome) =>
-  `Perfeito${nome ? ', ' + nome : ''}! Vou te conectar agora com nossa equipe presencial. Eles vão te dar todos os detalhes e finalizar isso pra você. Em alguns minutos uma de nossas atendentes te chama por aqui mesmo, tá bom?`;
+  `Perfeito${nome ? ', ' + primeiroNome(nome) : ''}! Vou te conectar agora com nossa equipe presencial. Eles vão te dar todos os detalhes e finalizar isso pra você. Em alguns minutos uma de nossas atendentes te chama por aqui mesmo, tá bom?`;
 
 /**
  * Gera o resumo da conversa pra mandar no grupo interno.
- * Pega as últimas N mensagens e formata pra leitura rápida.
+ * Pega as últimas 3 trocas e formata pra leitura rápida.
  */
 function formatarResumoConversa(mensagens) {
-  const ultimas = mensagens.slice(-6); // Últimas 6 trocas
+  const ultimas = mensagens.slice(-3); // Últimas 3 trocas (era 6)
   return ultimas
     .map((m) => {
       const quem = m.direcao === 'entrada' ? 'Lead' : 'Mila';
@@ -25,14 +34,6 @@ function formatarResumoConversa(mensagens) {
 
 /**
  * Executa a transferência completa de um lead pro humano.
- *
- * 1. Manda mensagem de despedida pro lead
- * 2. Atualiza status do lead pra 'transferido' no banco
- * 3. Envia notificação detalhada no grupo "Leads Cia Fitness"
- *
- * @param {Object} params
- * @param {Object} params.lead - Lead completo do banco
- * @param {string} params.motivo - Por que tá escalando (vem do detectarEscalacao)
  */
 export async function transferirParaHumano({ lead, motivo }) {
   console.log(`🔥 Transferindo lead ${lead.id} (${lead.telefone}) pro humano. Motivo: ${motivo}`);
@@ -42,7 +43,6 @@ export async function transferirParaHumano({ lead, motivo }) {
     await enviarTexto(lead.telefone, MENSAGEM_DESPEDIDA(lead.nome));
   } catch (error) {
     console.error('❌ Erro ao enviar mensagem de despedida:', error.message);
-    // Continua o fluxo mesmo se falhar, o importante é avisar o time
   }
 
   // 2. Atualiza status no banco
@@ -63,11 +63,10 @@ export async function transferirParaHumano({ lead, motivo }) {
     const resumo = formatarResumoConversa(historico);
 
     const mensagemGrupo = `🔥 LEAD QUENTE
-
-Nome: ${lead.nome || 'não informado'}
+Nome: ${primeiroNome(lead.nome) || 'não informado'}
 Telefone: ${lead.telefone}
 Campanha: ${lead.campanha_origem || 'não informada'}
-Motivo da transferência: ${motivo}
+Motivo: ${motivo}
 
 Últimas mensagens:
 ${resumo}
@@ -83,8 +82,7 @@ Status: aguardando contato humano
 }
 
 /**
- * Marca lead como encerrado (lead disse que não quer mais).
- * Não notifica grupo nem manda despedida elaborada.
+ * Marca lead como encerrado.
  */
 export async function encerrarLead(lead, motivo = 'lead pediu pra encerrar') {
   console.log(`🛑 Encerrando lead ${lead.id} (${lead.telefone}). Motivo: ${motivo}`);
@@ -92,7 +90,7 @@ export async function encerrarLead(lead, motivo = 'lead pediu pra encerrar') {
   try {
     await enviarTexto(
       lead.telefone,
-      `Tranquilo${lead.nome ? ', ' + lead.nome : ''}! Qualquer coisa no futuro, sabe onde me encontrar. Abraço!`
+      `Tranquilo${lead.nome ? ', ' + primeiroNome(lead.nome) : ''}! Qualquer coisa no futuro, sabe onde me encontrar. Abraço!`
     );
   } catch (error) {
     console.error('❌ Erro ao enviar despedida de encerramento:', error.message);
