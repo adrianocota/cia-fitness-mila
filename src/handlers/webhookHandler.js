@@ -10,6 +10,7 @@ import {
   salvarMensagem,
   ultimaMensagemFoiHumana,
   verificarDuplicata,
+  reativarLead,
 } from '../services/supabase.js';
 import { gerarResposta, detectarEscalacao } from '../services/openai.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
@@ -47,7 +48,6 @@ function detectarCrise(texto) {
 
 /**
  * Verifica se o lead transferido ainda está dentro da janela de silêncio (4 horas).
- * Se sim, Mila fica em silêncio. Se passou a janela, Mila pode voltar a responder.
  */
 function dentroJanelaSilencio(lead) {
   if (lead.status !== 'transferido') return false;
@@ -166,22 +166,61 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Se o lead já está com status 'encerrado', não responde
+  // Reabertura de lead encerrado que voltou a falar
   if (lead.status === 'encerrado') {
-    console.log(`🛑 Lead ${lead.id} está encerrado. Mila não vai responder.`);
-    await salvarMensagem({
-      leadId: lead.id,
-      direcao: 'entrada',
-      origem: 'lead',
-      conteudo,
-      tipo,
-    });
+    console.log(`🔄 Lead ${lead.id} encerrado voltou a falar. Avaliando reabertura.`);
+    try {
+      const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
+      lead = leadReativado;
+
+      // Salva a mensagem antes de responder
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'entrada',
+        origem: 'lead',
+        conteudo,
+        tipo,
+      });
+
+      // Monta contexto adicional pro system prompt dependendo do tempo passado
+      const systemPrompt = montarSystemPrompt();
+      let historicoFormatado = [];
+
+      if (retomandoContexto) {
+        // Menos de 30 dias: retoma com histórico
+        console.log(`📋 Retomando contexto (${diasPassados} dias atrás).`);
+        const historicoBruto = await buscarHistorico(lead.id, 10);
+        const historicoSemUltima = historicoBruto.slice(0, -1);
+        historicoFormatado = formatarHistorico(historicoSemUltima);
+      } else {
+        // Mais de 30 dias: começa do zero, sem histórico
+        console.log(`🆕 Mais de 30 dias (${diasPassados} dias). Iniciando conversa do zero.`);
+        historicoFormatado = [];
+      }
+
+      const resposta = await gerarResposta({
+        systemPrompt,
+        historico: historicoFormatado,
+        mensagemNova: retomandoContexto
+          ? `[CONTEXTO INTERNO — NÃO MENCIONE ISSO NA RESPOSTA: Este lead já conversou com você há ${diasPassados} dias e a conversa foi encerrada. Ele voltou agora. Retome de forma natural, sem ser dramático, reconheça que já conversaram se fizer sentido.]\n\nMensagem do lead: ${conteudo}`
+          : conteudo,
+      });
+
+      await enviarTexto(phone, resposta);
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: resposta,
+      });
+      console.log(`✅ Lead reaberto e respondido.`);
+    } catch (error) {
+      console.error('❌ Erro ao reabrir lead:', error.message);
+    }
     return;
   }
 
   // Janela de silêncio pós-escalação (4 horas)
-  // Se transferido e dentro da janela, Mila fica em silêncio SEMPRE
-  // independente de humano ter respondido ou não
   if (dentroJanelaSilencio(lead)) {
     console.log(`🤝 Lead ${lead.id} transferido e dentro da janela de silêncio. Mila em silêncio.`);
     await salvarMensagem({
