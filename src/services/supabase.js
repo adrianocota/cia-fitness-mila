@@ -18,6 +18,36 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceKey, {
 });
 
 /**
+ * Verifica se um messageId já foi processado.
+ * Retorna true se for duplicado (já existe), false se for novo.
+ */
+export async function verificarDuplicata(messageId) {
+  if (!messageId) return false;
+
+  try {
+    const { error } = await supabase
+      .from('webhook_ids')
+      .insert({ message_id: messageId });
+
+    if (error) {
+      // Código 23505 = violação de unique constraint = duplicata
+      if (error.code === '23505') {
+        console.log(`⚠️ Webhook duplicado ignorado: ${messageId}`);
+        return true;
+      }
+      // Outro erro inesperado — deixa passar pra não bloquear atendimento
+      console.error('Erro ao verificar duplicata:', error.message);
+      return false;
+    }
+
+    return false;
+  } catch (err) {
+    console.error('Erro inesperado no deduplicador:', err.message);
+    return false;
+  }
+}
+
+/**
  * Busca um lead pelo número de telefone.
  */
 export async function buscarLeadPorTelefone(telefone) {
