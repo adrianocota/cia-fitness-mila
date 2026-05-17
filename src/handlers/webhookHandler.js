@@ -24,6 +24,15 @@ import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
+  // Filtro: ignora qualquer mensagem vinda de grupo (evita lead-lixo no banco).
+  // A Mila opera só em conversas 1-a-1 com leads. Grupos (inclusive o de notificação
+  // interna) não devem virar lead nem disparar fluxo de atendimento.
+  const phoneOrigem = webhookBody.phone || '';
+  if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
+    console.log(`🔕 Mensagem de grupo ignorada (${phoneOrigem})`);
+    return;
+  }
+
   // Caso 1: Mensagem é da própria Mila/humano operando manualmente
   // (responder pelo painel da Z-API ou WhatsApp Business direto)
   if (ehMensagemDeHumano(webhookBody)) {
