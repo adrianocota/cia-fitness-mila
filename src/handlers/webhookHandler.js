@@ -23,6 +23,27 @@ function primeiroNome(nomeCompleto) {
   return nomeCompleto.trim().split(' ')[0];
 }
 
+/**
+ * Detecta se a mensagem contém indicadores de crise emocional grave.
+ */
+const PALAVRAS_CRISE = [
+  /suicid/i,
+  /me matar/i,
+  /quero morrer/i,
+  /n[ãa]o quero mais viver/i,
+  /tirar minha vida/i,
+  /automutila/i,
+  /me machucar/i,
+  /n[ãa]o aguento mais/i,
+  /acabar com tudo/i,
+  /desaparecer para sempre/i,
+];
+
+function detectarCrise(texto) {
+  if (!texto) return false;
+  return PALAVRAS_CRISE.some((r) => r.test(texto));
+}
+
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
@@ -82,7 +103,32 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Tratamento de áudio e imagem — resposta padrão, sem processar com IA
+  // Tratamento de crise emocional — prioridade máxima
+  if (detectarCrise(conteudo)) {
+    console.log(`🆘 Crise emocional detectada para lead ${lead.id}. Acionando protocolo de cuidado.`);
+    try {
+      await enviarTexto(
+        phone,
+        `Fico feliz que você compartilhou isso comigo. Pensamentos assim são pesados de carregar, e faz sentido querer mudar algo na vida.\n\nSe precisar conversar com alguém especializado, o CVV atende 24h pelo 188 ou pelo chat em cvv.org.br, de graça e com sigilo total.\n\nAqui na Cia, o treino pode ser um caminho pra se cuidar também. Mas o mais importante agora é você estar bem.`
+      );
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'entrada',
+        origem: 'lead',
+        conteudo,
+        tipo,
+      });
+      await transferirParaHumano({
+        lead,
+        motivo: 'situação de cuidado emocional — lead mencionou pensamentos graves',
+      });
+    } catch (error) {
+      console.error('❌ Erro ao tratar crise emocional:', error.message);
+    }
+    return;
+  }
+
+  // Tratamento de áudio e imagem
   if (tipo === 'audio' || tipo === 'imagem') {
     console.log(`🎵 Mensagem do tipo ${tipo} recebida. Enviando resposta padrão.`);
     await enviarTexto(phone, 'Oi! Não consigo ouvir áudios ou ver imagens por aqui, mas pode me mandar em texto que te respondo na hora! 😊');
