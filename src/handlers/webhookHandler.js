@@ -17,30 +17,25 @@ import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 /**
  * Extrai apenas o primeiro nome de um nome completo.
- * "Adriano Cota" → "Adriano"
  */
 function primeiroNome(nomeCompleto) {
   if (!nomeCompleto) return null;
   return nomeCompleto.trim().split(' ')[0];
 }
 
-/**
- * Handler principal de webhooks da Z-API.
- */
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
-  // Filtro: ignora qualquer mensagem vinda de grupo.
+  // Filtro: ignora mensagens de grupo
   const phoneOrigem = webhookBody.phone || '';
   if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
     console.log(`🔕 Mensagem de grupo ignorada (${phoneOrigem})`);
     return;
   }
 
-  // Caso 1: Mensagem é da própria Mila/humano operando manualmente
+  // Caso 1: Mensagem da própria Mila/humano operando manualmente
   if (ehMensagemDeHumano(webhookBody)) {
     console.log('👤 Mensagem manual de humano detectada. Mila não vai responder nessa conversa.');
-
     const phone = webhookBody.phone;
     if (phone) {
       try {
@@ -74,7 +69,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Identifica ou cria lead (salva apenas o primeiro nome)
+  // Identifica ou cria lead
   let lead;
   try {
     lead = await buscarOuCriarLead({
@@ -84,6 +79,20 @@ export async function processarWebhook(webhookBody) {
     });
   } catch (error) {
     console.error('❌ Erro ao buscar/criar lead:', error.message);
+    return;
+  }
+
+  // Tratamento de áudio e imagem — resposta padrão, sem processar com IA
+  if (tipo === 'audio' || tipo === 'imagem') {
+    console.log(`🎵 Mensagem do tipo ${tipo} recebida. Enviando resposta padrão.`);
+    await enviarTexto(phone, 'Oi! Não consigo ouvir áudios ou ver imagens por aqui, mas pode me mandar em texto que te respondo na hora! 😊');
+    await salvarMensagem({
+      leadId: lead.id,
+      direcao: 'entrada',
+      origem: 'lead',
+      conteudo: `[${tipo}]`,
+      tipo,
+    });
     return;
   }
 
