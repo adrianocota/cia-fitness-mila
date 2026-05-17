@@ -7,12 +7,6 @@ const openai = new OpenAI({
 
 /**
  * Gera resposta da Mila para uma conversa.
- *
- * @param {Object} params
- * @param {string} params.systemPrompt - O prompt do sistema (persona + regras + base de conhecimento)
- * @param {Array} params.historico - Array de mensagens da conversa [{role, content}]
- * @param {string} params.mensagemNova - A mensagem que o lead acabou de mandar
- * @returns {Promise<string>} A resposta da Mila
  */
 export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
   const messages = [
@@ -35,7 +29,6 @@ export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
       throw new Error('Resposta vazia da OpenAI');
     }
 
-    // Log de uso pra você acompanhar custo
     const tokens = completion.usage;
     console.log(`💬 OpenAI: ${tokens.prompt_tokens} in + ${tokens.completion_tokens} out = ${tokens.total_tokens} tokens`);
 
@@ -47,13 +40,7 @@ export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
 }
 
 /**
- * Classifica a intenção da resposta do lead em uma de 3 categorias:
- * - 'evasiva': "depois falo", "vou pensar" → continua sequência de follow-up
- * - 'engajamento': pergunta real, interesse → pausa sequência
- * - 'encerramento': "não quero", "para de chamar" → para definitivamente
- *
- * @param {string} mensagemDoLead
- * @returns {Promise<'evasiva'|'engajamento'|'encerramento'>}
+ * Classifica a intenção da resposta do lead.
  */
 export async function classificarResposta(mensagemDoLead) {
   const prompt = `Você é um classificador de mensagens. Analise a mensagem abaixo de um lead de uma academia e classifique em UMA dessas 3 categorias:
@@ -89,35 +76,38 @@ Responda APENAS com a palavra da categoria (sem aspas, sem explicação):`;
     return categoria;
   } catch (error) {
     console.error('❌ Erro ao classificar resposta:', error.message);
-    return 'engajamento'; // Fallback seguro
+    return 'engajamento';
   }
 }
 
 /**
  * Detecta se a conversa atingiu um gatilho de escalação pro humano.
- *
- * @param {string} systemPrompt - Mesmo prompt da Mila (pra ela ter contexto)
- * @param {Array} historico - Histórico da conversa
- * @param {string} mensagemNova - Última mensagem do lead
- * @returns {Promise<{escalar: boolean, motivo: string|null}>}
  */
 export async function detectarEscalacao({ historico, mensagemNova }) {
-  const prompt = `Você analisa conversas entre lead e atendente virtual de uma academia. Decida se essa conversa deve ser transferida pra atendente humano agora.
+  const prompt = `Você analisa conversas entre lead e atendente virtual de uma academia. Decida se essa conversa deve ser transferida pra atendente humano AGORA.
 
-GATILHOS DE TRANSFERÊNCIA (responda "SIM" se algum acontecer):
-- Lead disse explicitamente que quer fechar matrícula ("quero fechar", "quero me matricular", "como começo")
-- Lead pediu pra falar com pessoa ("quero falar com alguém", "passa pra um atendente")
-- Lead pediu desconto e insistiu mesmo após resposta padrão
-- Lead perguntou valor de multa de cancelamento e insistiu
-- Lead fez reclamação grave
-- Lead pediu pra agendar visita com hora marcada específica
-- Lead tem condição médica complexa (não simples) que requer avaliação humana
+CONTEXTO IMPORTANTE:
+Leads de academia frequentemente chegam dizendo "quero fazer academia", "quero treinar", "quero me matricular" logo na primeira mensagem. Isso é comportamento NORMAL de entrada e NÃO é gatilho de transferência. A atendente virtual deve qualificar o lead primeiro (entender horário disponível, objetivo, plano adequado) antes de transferir.
 
-NÃO É GATILHO (responda "NAO"):
-- Lead só perguntou sobre planos
-- Lead disse "vou pensar" ou outras respostas evasivas
-- Lead fez perguntas gerais sobre a academia
-- Lead mencionou objetivo (emagrecer, ganhar massa) sem agendamento concreto
+GATILHOS REAIS DE TRANSFERÊNCIA (responda "SIM" apenas se um desses acontecer de forma clara e explícita):
+- Lead pediu explicitamente pra falar com pessoa humana ("quero falar com alguém", "passa pra atendente", "me liga", "quero falar com a recepção")
+- Lead quer agendar visita com hora marcada específica ("posso ir amanhã às 15h?", "quando posso ir conhecer?")
+- Lead manifestou intenção clara de fechar agora e perguntou como pagar ("como faço o pagamento?", "qual o link pra matricular?", "posso pagar hoje?")
+- Lead pediu desconto e insistiu mesmo após resposta padrão (segunda vez ou mais)
+- Lead perguntou valor de multa de cancelamento e insistiu (segunda vez ou mais)
+- Lead fez reclamação grave sobre a academia
+- Lead tem condição médica complexa que claramente requer avaliação presencial
+- Lead perguntou algo que a atendente virtual claramente não sabe responder e precisa de humano
+
+NÃO É GATILHO — NUNCA transfira por esses motivos:
+- Lead disse "quero fazer academia", "quero treinar", "quero me matricular" (entrada normal da conversa)
+- Lead perguntou sobre planos, preços, horários, modalidades, estrutura
+- Lead fez objeção simples de preço ou horário
+- Lead disse "vou pensar", "depois falo" ou outras respostas evasivas
+- Lead mencionou objetivo (emagrecer, ganhar massa) sem pedir agendamento concreto
+- Lead fez pergunta sobre professores, formação, estagiários
+- Lead perguntou sobre estacionamento, vestiário, estrutura
+- Lead está no início da conversa (primeiras 1-3 mensagens)
 
 Últimas mensagens da conversa:
 ${historico.slice(-6).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('\n')}
@@ -126,7 +116,7 @@ ${historico.slice(-6).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.co
 
 Responda APENAS no formato:
 RESPOSTA: SIM ou NAO
-MOTIVO: [se SIM, qual gatilho. Se NAO, deixe em branco]`;
+MOTIVO: [se SIM, qual gatilho específico ocorreu. Se NAO, deixe em branco]`;
 
   try {
     const completion = await openai.chat.completions.create({
