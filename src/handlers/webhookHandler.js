@@ -380,7 +380,7 @@ export async function processarWebhook(webhookBody) {
   if (detectarPerguntaFluxo(conteudo)) {
     console.log(`📊 Pergunta sobre fluxo detectada. Enviando fluxograma.`);
     try {
-      await enviarImagem(phone, FLUXOGRAMA_URL, '');
+      await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
       await salvarMensagem({
         leadId: lead.id,
         direcao: 'saida',
