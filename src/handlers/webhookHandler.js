@@ -48,7 +48,7 @@ function detectarCrise(texto) {
 }
 
 /**
- * Verifica se o lead transferido ainda está dentro da janela de silêncio (4 horas).
+ * Verifica se o lead transferido ainda está dentro da janela de silêncio (2 horas).
  */
 function dentroJanelaSilencio(lead) {
   if (lead.status !== 'transferido') return false;
@@ -60,6 +60,17 @@ function dentroJanelaSilencio(lead) {
   const diferencaHoras = (agora - ultimaInteracao) / (1000 * 60 * 60);
 
   return diferencaHoras < JANELA_HORAS;
+}
+
+/**
+ * Calcula dias de silêncio desde a última interação do lead.
+ * Retorna 0 se foi hoje ou ontem (menos de 2 dias).
+ */
+function diasDeSilencio(lead) {
+  if (!lead.ultima_interacao_em) return 0;
+  const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
+  const agora = Date.now();
+  return (agora - ultimaInteracao) / (1000 * 60 * 60 * 24);
 }
 
 export async function processarWebhook(webhookBody) {
@@ -225,7 +236,7 @@ export async function processarWebhook(webhookBody) {
         systemPrompt,
         historico: historicoFormatado,
         mensagemNova: retomandoContexto
-          ? `[CONTEXTO INTERNO — NÃO MENCIONE ISSO NA RESPOSTA: Este lead já conversou com você há ${diasPassados} dias e a conversa foi encerrada. Ele voltou agora. Retome de forma natural, sem ser dramático, reconheça que já conversaram se fizer sentido.]\n\nMensagem do lead: ${conteudo}`
+          ? `[CONTEXTO INTERNO — NÃO MENCIONE ISSO NA RESPOSTA: Este lead já conversou com você há ${diasPassados} dias e a conversa foi encerrada. Ele voltou agora. Cumprimente de forma natural, mencione que já conversaram antes se fizer sentido, e retome o assunto de onde parou.]\n\nMensagem do lead: ${conteudo}`
           : conteudo,
       });
 
@@ -250,7 +261,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Janela de silêncio pós-escalação (4 horas)
+  // Janela de silêncio pós-escalação (2 horas)
   if (dentroJanelaSilencio(lead)) {
     console.log(`🤝 Lead ${lead.id} transferido e dentro da janela de silêncio. Mila em silêncio.`);
     await salvarMensagem({
@@ -263,7 +274,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Se transferido mas fora da janela de silêncio (4h+), verifica se humano ainda está ativo
+  // Se transferido mas fora da janela de silêncio (2h+), verifica se humano ainda está ativo
   if (lead.status === 'transferido') {
     const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
     if (humanoAtivo) {
@@ -277,7 +288,7 @@ export async function processarWebhook(webhookBody) {
       });
       return;
     }
-    console.log(`🔄 Lead ${lead.id} transferido há mais de 4h sem resposta humana. Mila retomando.`);
+    console.log(`🔄 Lead ${lead.id} transferido há mais de 2h sem resposta humana. Mila retomando.`);
   }
 
   // Salva a mensagem do lead no histórico
@@ -312,7 +323,17 @@ export async function processarWebhook(webhookBody) {
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
-  // 4. Detecta escalação via IA
+  // 4. Calcula dias de silêncio e injeta contexto se lead ficou 2+ dias sem responder
+  const silencio = diasDeSilencio(lead);
+  let mensagemComContexto = conteudo;
+
+  if (silencio >= 2) {
+    const dias = Math.floor(silencio);
+    console.log(`💤 Lead ${lead.id} ficou ${dias} dias sem responder. Injetando contexto de retomada.`);
+    mensagemComContexto = `[CONTEXTO INTERNO — NÃO MENCIONE ISSO NA RESPOSTA: Este lead ficou ${dias} dias sem responder e voltou agora. Cumprimente de forma natural e calorosa, como "Oi [nome]! Que bom te ver por aqui." e em seguida retome o assunto de onde parou. Não seja dramático, não pergunte por que sumiu.]\n\nMensagem do lead: ${conteudo}`;
+  }
+
+  // 5. Detecta escalação via IA
   const { escalar, motivo } = await detectarEscalacao({
     historico: historicoFormatado,
     mensagemNova: conteudo,
@@ -324,14 +345,14 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // 5. Gera resposta normal da Mila
+  // 6. Gera resposta normal da Mila
   let resposta;
   try {
     const systemPrompt = montarSystemPrompt();
     resposta = await gerarResposta({
       systemPrompt,
       historico: historicoFormatado,
-      mensagemNova: conteudo,
+      mensagemNova: mensagemComContexto,
     });
   } catch (error) {
     console.error('❌ Erro ao gerar resposta da Mila:', error.message);
@@ -345,7 +366,7 @@ export async function processarWebhook(webhookBody) {
     resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
   }
 
-  // 6. Envia resposta
+  // 7. Envia resposta
   try {
     await enviarTexto(phone, resposta);
     await salvarMensagem({
