@@ -20,8 +20,7 @@ import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifi
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 // URL pública do fluxograma de alunos por hora
-const FLUXOGRAMA_URL = 'https://raw.githubusercontent.com/adrianocota/cia-fitness-mila/main/fluxo_alunos_2026_tv.jpg';
-
+const FLUXOGRAMA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/fluxo_alunos_2026_tv.jpg';
 /**
  * Extrai apenas o primeiro nome de um nome completo.
  */
