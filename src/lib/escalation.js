@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { enviarMensagemGrupo, enviarTexto } from '../services/zapi.js';
 import { atualizarStatusLead, buscarHistorico } from '../services/supabase.js';
+import { gerarResposta } from '../services/openai.js';
 
 /**
  * Extrai apenas o primeiro nome de um nome completo.
@@ -15,21 +16,59 @@ function primeiroNome(nomeCompleto) {
  * Mensagem que a Mila envia pro lead avisando que vai transferir pro humano.
  */
 const MENSAGEM_DESPEDIDA = (nome) =>
-  `Perfeito${nome ? ', ' + primeiroNome(nome) : ''}! Vou te conectar agora com nossa equipe presencial. Eles vão te dar todos os detalhes e finalizar isso pra você. Em alguns minutos uma de nossas atendentes te chama por aqui mesmo, tá bom?`;
+  `Perfeito${nome ? ', ' + primeiroNome(nome) : ''}! Vou te conectar agora com nossa equipe presencial. Eles vão te ajudar com tudo. Em alguns minutos uma de nossas atendentes te chama por aqui mesmo, tá bom?`;
 
 /**
- * Gera o resumo da conversa pra mandar no grupo interno.
- * Pega as últimas 3 trocas e formata pra leitura rápida.
+ * Gera resumo inteligente da conversa usando a OpenAI.
+ * Extrai: plano de interesse, restrição de horário, intenção principal do lead.
+ * Retorna até 3 frases curtas e diretas.
  */
-function formatarResumoConversa(mensagens) {
-  const ultimas = mensagens.slice(-3); // Últimas 3 trocas (era 6)
-  return ultimas
-    .map((m) => {
-      const quem = m.direcao === 'entrada' ? 'Lead' : 'Mila';
-      const conteudo = m.conteudo.length > 200 ? m.conteudo.slice(0, 200) + '...' : m.conteudo;
-      return `${quem}: ${conteudo}`;
-    })
-    .join('\n');
+async function gerarResumoConversa(historico, motivo) {
+  try {
+    const conversaFormatada = historico
+      .map((m) => {
+        const quem = m.direcao === 'entrada' ? 'Lead' : 'Mila';
+        return `${quem}: ${m.conteudo}`;
+      })
+      .join('\n');
+
+    const prompt = `Você é um assistente que resume conversas de vendas de academia de forma extremamente concisa.
+
+Analise a conversa abaixo e gere um resumo em até 3 frases curtas e diretas, cobrindo:
+- Qual plano o lead se interessou (se mencionado)
+- Restrição de horário do lead (se mencionada)
+- O que o lead quer ou precisa (intenção principal)
+
+REGRAS:
+- Máximo 3 frases curtas
+- Sem introdução, sem conclusão, sem "o lead disse que"
+- Direto ao ponto, como notas para uma atendente
+- Em português brasileiro
+
+Conversa:
+${conversaFormatada}
+
+Motivo da escalação: ${motivo}
+
+Responda APENAS com o resumo, sem nenhuma outra informação.`;
+
+    const resumo = await gerarResposta({
+      systemPrompt: 'Você resume conversas de vendas em frases curtas e diretas.',
+      historico: [],
+      mensagemNova: prompt,
+    });
+
+    return resumo?.trim() || 'Resumo não disponível.';
+  } catch (error) {
+    console.error('❌ Erro ao gerar resumo da conversa:', error.message);
+    // Fallback: últimas 2 mensagens do lead
+    const mensagensLead = historico
+      .filter((m) => m.direcao === 'entrada')
+      .slice(-2)
+      .map((m) => m.conteudo)
+      .join(' | ');
+    return mensagensLead || 'Resumo não disponível.';
+  }
 }
 
 /**
@@ -59,18 +98,15 @@ export async function transferirParaHumano({ lead, motivo }) {
   }
 
   try {
-    const historico = await buscarHistorico(lead.id, 10);
-    const resumo = formatarResumoConversa(historico);
+    const historico = await buscarHistorico(lead.id, 20);
+    const resumo = await gerarResumoConversa(historico, motivo);
 
     const mensagemGrupo = `🔥 LEAD QUENTE
 Nome: ${primeiroNome(lead.nome) || 'não informado'}
 Telefone: ${lead.telefone}
 Campanha: ${lead.campanha_origem || 'não informada'}
+📋 Resumo: ${resumo}
 Motivo: ${motivo}
-
-Últimas mensagens:
-${resumo}
-
 Status: aguardando contato humano
 👉 Continue a conversa no contato dele.`;
 
