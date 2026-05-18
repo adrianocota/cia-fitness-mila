@@ -20,7 +20,7 @@ import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifi
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 // URL pública do fluxograma de alunos por hora
-const FLUXOGRAMA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/fluxo_alunos_2026_tv.jpg';
+const FLUXOGRAMA_URL = 'https://raw.githubusercontent.com/adrianocota/cia-fitness-mila/main/fluxo_alunos_2026_tv.jpg';
 
 /**
  * Extrai apenas o primeiro nome de um nome completo.
@@ -376,15 +376,11 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // 6. Detecta pergunta sobre fluxo de alunos — envia fluxograma
+  // 6. Detecta pergunta sobre fluxo de alunos — envia fluxograma + texto fixo
   if (detectarPerguntaFluxo(conteudo)) {
     console.log(`📊 Pergunta sobre fluxo detectada. Enviando fluxograma.`);
     try {
-      await enviarImagem(
-        phone,
-        FLUXOGRAMA_URL,
-        'Fluxo de alunos por hora na Cia do Fitness. Os horários em dourado são os mais movimentados.'
-      );
+      await enviarImagem(phone, FLUXOGRAMA_URL, '');
       await salvarMensagem({
         leadId: lead.id,
         direcao: 'saida',
@@ -394,7 +390,19 @@ export async function processarWebhook(webhookBody) {
     } catch (error) {
       console.error('❌ Erro ao enviar fluxograma:', error.message);
     }
-    return; // Para aqui, sem gerar texto complementar
+    const textoFluxo = 'A academia funciona de segunda a sexta, das 6h às 22h, e sábado das 8h às 12h. Os horários mais vazios são entre 11h e 15h e depois das 20h. Se você puder treinar nesse período, vai encontrar mais espaço e menos movimento.';
+    try {
+      await enviarTexto(phone, textoFluxo);
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: textoFluxo,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao enviar texto do fluxograma:', error.message);
+    }
+    return;
   }
 
   // 7. Gera resposta normal da Mila
