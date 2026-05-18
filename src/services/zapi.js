@@ -26,62 +26,27 @@ function calcularDelayDigitacao(message) {
 }
 
 /**
- * Aguarda N milissegundos.
- */
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Envia o status "digitando..." pro número via Z-API.
- *
- * @param {string} phone - Número destino
- * @param {string} status - 'composing' (digitando) ou 'available' (parou)
- */
-async function enviarPresenca(phone, status) {
-  try {
-    await zapi.post('/presence', {
-      phone,
-      status,
-    });
-  } catch (error) {
-    // Não quebra o fluxo se falhar — é só cosmético
-    console.warn(`⚠️ Falha ao enviar presença (${status}):`, error.message);
-  }
-}
-
-/**
  * Envia mensagem de texto pra um número.
- * Simula digitação humana antes de enviar.
+ * Usa o parâmetro delayMessage da Z-API pra mostrar o indicador de digitação
+ * antes de enviar — sem precisar de endpoint de presença separado.
  *
  * @param {string} phone - Número no formato 5531999999999
  * @param {string} message - Texto da mensagem
  * @returns {Promise<Object>} resposta da Z-API
  */
 export async function enviarTexto(phone, message) {
+  const delayMessage = calcularDelayDigitacao(message);
+
   try {
-    const delay = calcularDelayDigitacao(message);
-
-    // 1. Ativa "digitando..."
-    await enviarPresenca(phone, 'composing');
-
-    // 2. Aguarda tempo proporcional ao tamanho da mensagem
-    await sleep(delay);
-
-    // 3. Envia a mensagem de fato
     const response = await zapi.post('/send-text', {
       phone,
       message,
+      delayMessage, // Z-API mostra "digitando..." pelo tempo do delay antes de enviar
     });
 
-    // 4. Para o "digitando..."
-    await enviarPresenca(phone, 'available');
-
-    console.log(`📤 Mensagem enviada pra ${phone} (delay: ${delay}ms)`);
+    console.log(`📤 Mensagem enviada pra ${phone} (delay: ${delayMessage}ms)`);
     return response.data;
   } catch (error) {
-    // Garante que o "digitando" para mesmo se der erro
-    await enviarPresenca(phone, 'available').catch(() => {});
     console.error(`❌ Erro ao enviar texto pra ${phone}:`, error.response?.data || error.message);
     throw error;
   }
@@ -108,7 +73,7 @@ export async function enviarImagem(phone, imageUrl, caption = '') {
 
 /**
  * Envia mensagem pra um grupo do WhatsApp.
- * Sem delay de digitação — notificações internas não precisam parecer humanas.
+ * Sem delay — notificações internas não precisam parecer humanas.
  */
 export async function enviarMensagemGrupo(groupId, message) {
   try {
