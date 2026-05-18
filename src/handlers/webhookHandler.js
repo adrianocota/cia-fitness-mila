@@ -54,7 +54,7 @@ function dentroJanelaSilencio(lead) {
   if (lead.status !== 'transferido') return false;
   if (!lead.ultima_interacao_em) return false;
 
-  const JANELA_HORAS = 4;
+  const JANELA_HORAS = 2;
   const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
   const agora = Date.now();
   const diferencaHoras = (agora - ultimaInteracao) / (1000 * 60 * 60);
