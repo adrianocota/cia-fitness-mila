@@ -1,156 +1,441 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { config } from '../config.js';
+import { config, isTestMode } from '../config.js';
+import {
+  parsearWebhook,
+  ehMensagemDeHumano,
+  enviarTexto,
+  enviarImagem,
+} from '../services/zapi.js';
+import {
+  buscarOuCriarLead,
+  buscarHistorico,
+  salvarMensagem,
+  ultimaMensagemFoiHumana,
+  verificarDuplicata,
+  reativarLead,
+  gravarLog,
+} from '../services/supabase.js';
+import { gerarResposta, detectarEscalacao } from '../services/openai.js';
+import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
+import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
+import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
-// __dirname não existe em ES modules, então fazemos manualmente
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Caminho da pasta data (relativo a este arquivo)
-const DATA_DIR = path.join(__dirname, '..', 'data');
+// URL pública do fluxograma de alunos por hora
+const FLUXOGRAMA_URL = 'https://raw.githubusercontent.com/adrianocota/cia-fitness-mila/main/fluxo_alunos_2026_tv.jpg';
 
 /**
- * Cache simples pra não ler os arquivos de markdown a cada mensagem.
- * Recarrega automaticamente se o arquivo mudar (em produção, requer redeploy).
+ * Extrai apenas o primeiro nome de um nome completo.
  */
-let cacheBaseConhecimento = null;
-let cacheOfertaVigente = null;
+function primeiroNome(nomeCompleto) {
+  if (!nomeCompleto) return null;
+  return nomeCompleto.trim().split(' ')[0];
+}
 
-function lerArquivo(nomeArquivo) {
-  const caminho = path.join(DATA_DIR, nomeArquivo);
+/**
+ * Detecta se a mensagem contém indicadores de crise emocional grave.
+ */
+const PALAVRAS_CRISE = [
+  /suicid/i,
+  /me matar/i,
+  /quero morrer/i,
+  /n[ãa]o quero mais viver/i,
+  /tirar minha vida/i,
+  /automutila/i,
+  /me machucar/i,
+  /n[ãa]o aguento mais/i,
+  /acabar com tudo/i,
+  /desaparecer para sempre/i,
+];
+
+function detectarCrise(texto) {
+  if (!texto) return false;
+  return PALAVRAS_CRISE.some((r) => r.test(texto));
+}
+
+/**
+ * Detecta se o lead está perguntando sobre fluxo de alunos ou horários de movimento.
+ */
+const PALAVRAS_FLUXO = [
+  /fluxo/i,
+  /movimento/i,
+  /lotad/i,
+  /chei/i,
+  /vazi/i,
+  /tranquil/i,
+  /fila/i,
+  /quantos alunos/i,
+  /horário.{0,20}vaz/i,
+  /horário.{0,20}tranquil/i,
+  /horário.{0,20}menos gente/i,
+  /menos movimentad/i,
+  /mais calmo/i,
+  /quando.{0,20}vaz/i,
+  /quando.{0,20}menos/i,
+  /horário.{0,20}cheio/i,
+  /horário.{0,20}lotad/i,
+];
+
+function detectarPerguntaFluxo(texto) {
+  if (!texto) return false;
+  return PALAVRAS_FLUXO.some((r) => r.test(texto));
+}
+
+/**
+ * Verifica se o lead transferido ainda está dentro da janela de silêncio (2 horas).
+ */
+function dentroJanelaSilencio(lead) {
+  if (lead.status !== 'transferido') return false;
+  if (!lead.ultima_interacao_em) return false;
+
+  const JANELA_HORAS = 2;
+  const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
+  const agora = Date.now();
+  const diferencaHoras = (agora - ultimaInteracao) / (1000 * 60 * 60);
+
+  return diferencaHoras < JANELA_HORAS;
+}
+
+/**
+ * Calcula dias de silêncio desde a última interação do lead.
+ */
+function diasDeSilencio(lead) {
+  if (!lead.ultima_interacao_em) return 0;
+  const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
+  const agora = Date.now();
+  return (agora - ultimaInteracao) / (1000 * 60 * 60 * 24);
+}
+
+export async function processarWebhook(webhookBody) {
+  console.log('📥 Webhook recebido');
+
+  // Deduplicação: ignora webhooks já processados
+  const messageId = webhookBody.messageId || webhookBody.id || null;
+  if (messageId) {
+    const duplicata = await verificarDuplicata(messageId);
+    if (duplicata) return;
+  }
+
+  // Filtro: ignora mensagens de grupo
+  const phoneOrigem = webhookBody.phone || '';
+  if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
+    console.log(`🔕 Mensagem de grupo ignorada (${phoneOrigem})`);
+    return;
+  }
+
+  // Caso 1: Mensagem da própria Mila/humano operando manualmente
+  if (ehMensagemDeHumano(webhookBody)) {
+    console.log('👤 Mensagem manual de humano detectada. Mila não vai responder nessa conversa.');
+    const phone = webhookBody.phone;
+    if (phone) {
+      try {
+        const lead = await buscarOuCriarLead({ telefone: phone });
+        const conteudo = webhookBody.text?.message || '[mensagem do humano]';
+        await salvarMensagem({
+          leadId: lead.id,
+          direcao: 'saida',
+          origem: 'humano',
+          conteudo,
+        });
+      } catch (error) {
+        console.error('Erro ao salvar mensagem do humano:', error.message);
+        await gravarLog({
+          contexto: 'webhook',
+          mensagem: 'Erro ao salvar mensagem do humano',
+          telefone: webhookBody.phone,
+          payload: { erro: error.message },
+        });
+      }
+    }
+    return;
+  }
+
+  // Caso 2: Mensagem de entrada (lead falou)
+  const mensagem = parsearWebhook(webhookBody);
+  if (!mensagem) {
+    console.log('⚠️ Webhook ignorado (formato não reconhecido)');
+    return;
+  }
+
+  const { phone, nome, conteudo, tipo } = mensagem;
+
+  // Validação modo teste
+  if (isTestMode() && phone !== config.testPhoneNumber) {
+    console.log(`🧪 Modo teste ativo. Ignorando mensagem de ${phone} (autorizado: ${config.testPhoneNumber}).`);
+    return;
+  }
+
+  // Identifica ou cria lead
+  let lead;
   try {
-    return fs.readFileSync(caminho, 'utf8');
+    lead = await buscarOuCriarLead({
+      telefone: phone,
+      nome: primeiroNome(nome),
+      campanhaOrigem: null,
+    });
   } catch (error) {
-    console.error(`❌ Erro ao ler ${nomeArquivo}:`, error.message);
-    throw new Error(`Arquivo ${nomeArquivo} não encontrado em ${DATA_DIR}`);
+    console.error('❌ Erro ao buscar/criar lead:', error.message);
+    await gravarLog({
+      contexto: 'supabase',
+      mensagem: 'Erro ao buscar ou criar lead',
+      telefone: phone,
+      payload: { erro: error.message },
+    });
+    return;
   }
-}
 
-function getBaseConhecimento() {
-  if (!cacheBaseConhecimento) {
-    cacheBaseConhecimento = lerArquivo('base_conhecimento.md');
+  // Tratamento de crise emocional — prioridade máxima
+  if (detectarCrise(conteudo)) {
+    console.log(`🆘 Crise emocional detectada para lead ${lead.id}. Acionando protocolo de cuidado.`);
+    try {
+      await enviarTexto(
+        phone,
+        `Fico feliz que você compartilhou isso comigo. Pensamentos assim são pesados de carregar, e faz sentido querer mudar algo na vida.\n\nSe precisar conversar com alguém especializado, o CVV atende 24h pelo 188 ou pelo chat em cvv.org.br, de graça e com sigilo total.\n\nAqui na Cia, o treino pode ser um caminho pra se cuidar também. Mas o mais importante agora é você estar bem.`
+      );
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'entrada',
+        origem: 'lead',
+        conteudo,
+        tipo,
+      });
+      await transferirParaHumano({
+        lead,
+        motivo: 'situação de cuidado emocional — lead mencionou pensamentos graves',
+      });
+      await gravarLog({
+        nivel: 'aviso',
+        contexto: 'webhook',
+        mensagem: 'Protocolo de crise emocional acionado',
+        telefone: phone,
+        leadId: lead.id,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao tratar crise emocional:', error.message);
+      await gravarLog({
+        contexto: 'webhook',
+        mensagem: 'Erro ao tratar crise emocional',
+        telefone: phone,
+        leadId: lead.id,
+        payload: { erro: error.message },
+      });
+    }
+    return;
   }
-  return cacheBaseConhecimento;
-}
 
-function getOfertaVigente() {
-  if (!cacheOfertaVigente) {
-    cacheOfertaVigente = lerArquivo('oferta_vigente.md');
+  // Tratamento de áudio e imagem
+  if (tipo === 'audio' || tipo === 'imagem') {
+    console.log(`🎵 Mensagem do tipo ${tipo} recebida. Enviando resposta padrão.`);
+    await enviarTexto(phone, 'Oi! Não consigo ouvir áudios ou ver imagens por aqui, mas pode me mandar em texto que te respondo na hora! 😊');
+    await salvarMensagem({
+      leadId: lead.id,
+      direcao: 'entrada',
+      origem: 'lead',
+      conteudo: `[${tipo}]`,
+      tipo,
+    });
+    return;
   }
-  return cacheOfertaVigente;
-}
 
-/**
- * Monta o prompt do sistema que vai pra OpenAI.
- * Junta a base de conhecimento + oferta vigente + instruções operacionais.
- *
- * @returns {string} O prompt completo pro modelo
- */
-export function montarSystemPrompt() {
-  const baseConhecimento = getBaseConhecimento();
-  const ofertaVigente = getOfertaVigente();
+  // Reabertura de lead encerrado que voltou a falar
+  if (lead.status === 'encerrado') {
+    console.log(`🔄 Lead ${lead.id} encerrado voltou a falar. Avaliando reabertura.`);
+    try {
+      const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
+      lead = leadReativado;
 
-  return `Você é Mila, atendente virtual da Cia do Fitness. Siga RIGOROSAMENTE as instruções abaixo.
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'entrada',
+        origem: 'lead',
+        conteudo,
+        tipo,
+      });
 
-═══════════════════════════════════════════════════════
-BASE DE CONHECIMENTO (informações da Cia, como você se comporta, exemplos de resposta):
-═══════════════════════════════════════════════════════
+      const systemPrompt = montarSystemPrompt();
+      let historicoFormatado = [];
 
-${baseConhecimento}
+      if (retomandoContexto) {
+        console.log(`📋 Retomando contexto (${diasPassados} dias atrás).`);
+        const historicoBruto = await buscarHistorico(lead.id, 10);
+        const historicoSemUltima = historicoBruto.slice(0, -1);
+        historicoFormatado = formatarHistorico(historicoSemUltima);
+      } else {
+        console.log(`🆕 Mais de 30 dias (${diasPassados} dias). Iniciando conversa do zero.`);
+        historicoFormatado = [];
+      }
 
-═══════════════════════════════════════════════════════
-CAMPANHA ATUALMENTE VIGENTE (o que o lead acabou de ver no anúncio):
-═══════════════════════════════════════════════════════
+      const resposta = await gerarResposta({
+        systemPrompt,
+        historico: historicoFormatado,
+        mensagemNova: retomandoContexto
+          ? `[CONTEXTO INTERNO — NÃO MENCIONE ISSO NA RESPOSTA: Este lead já conversou com você há ${diasPassados} dias e a conversa foi encerrada. Ele voltou agora. Cumprimente de forma natural, mencione que já conversaram antes se fizer sentido, e retome o assunto de onde parou.]\n\nMensagem do lead: ${conteudo}`
+          : conteudo,
+      });
 
-${ofertaVigente}
+      await enviarTexto(phone, resposta);
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: resposta,
+      });
+      console.log(`✅ Lead reaberto e respondido.`);
+    } catch (error) {
+      console.error('❌ Erro ao reabrir lead:', error.message);
+      await gravarLog({
+        contexto: 'webhook',
+        mensagem: 'Erro ao reabrir lead encerrado',
+        telefone: phone,
+        leadId: lead.id,
+        payload: { erro: error.message },
+      });
+    }
+    return;
+  }
 
-═══════════════════════════════════════════════════════
-INSTRUÇÕES OPERACIONAIS FINAIS — SIGA COM ATENÇÃO MÁXIMA:
-═══════════════════════════════════════════════════════
+  // Janela de silêncio pós-escalação (2 horas)
+  if (dentroJanelaSilencio(lead)) {
+    console.log(`🤝 Lead ${lead.id} transferido e dentro da janela de silêncio. Mila em silêncio.`);
+    await salvarMensagem({
+      leadId: lead.id,
+      direcao: 'entrada',
+      origem: 'lead',
+      conteudo,
+      tipo,
+    });
+    return;
+  }
 
-IDIOMA E FORMATO:
-- Responda SEMPRE em português brasileiro natural, como em WhatsApp.
-- Mantenha respostas CURTAS (1-3 frases na maioria das vezes). WhatsApp não é e-mail.
-- Use o nome do lead quando relevante, mas não em toda mensagem.
-- NUNCA use travessões (—) nem traços longos (–). Use vírgula, ponto, dois pontos.
+  // Se transferido mas fora da janela de silêncio (2h+), verifica se humano ainda está ativo
+  if (lead.status === 'transferido') {
+    const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
+    if (humanoAtivo) {
+      console.log(`🤝 Lead ${lead.id} sendo atendido por humano. Mila em silêncio.`);
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'entrada',
+        origem: 'lead',
+        conteudo,
+        tipo,
+      });
+      return;
+    }
+    console.log(`🔄 Lead ${lead.id} transferido há mais de 2h sem resposta humana. Mila retomando.`);
+  }
 
-NOMENCLATURA DE PLANOS — OBRIGATÓRIO:
-- Use SEMPRE os nomes exatos: "Assinatura Mensal", "Assinatura Anual", "Assinatura Econômica Anual", "Plano Clube+".
-- NUNCA use variações como "Plano Mensal Livre", "Plano Anual Livre", "Plano Econômico".
-- Assinatura Mensal = R$ 149/mês. Assinatura Anual = R$ 119/mês. São planos diferentes. Nunca confunda.
-- Se o lead perguntar "quanto é o mensal", responda sobre a Assinatura Mensal (R$ 149/mês), não sobre a Assinatura Anual.
+  // Salva a mensagem do lead no histórico
+  await salvarMensagem({
+    leadId: lead.id,
+    direcao: 'entrada',
+    origem: 'lead',
+    conteudo,
+    tipo,
+  });
 
-MEMÓRIA DO HISTÓRICO — CRÍTICO (Ajuste #41):
-- Leia o histórico da conversa ANTES de fazer qualquer pergunta.
-- NUNCA pergunte algo que o lead já respondeu anteriormente na mesma conversa.
-- Se o lead já informou o horário disponível, NÃO pergunte o horário de novo.
-- Se o lead já informou o objetivo (emagrecer, ganhar massa, etc.), NÃO pergunte o objetivo de novo.
-- Se o lead já informou que não quer aulas coletivas, NÃO mencione aulas coletivas de novo.
-- Se o lead já informou que só pode treinar à noite, NÃO sugira o plano econômico (11h-15h).
-- Use o que o lead já disse pra avançar, nunca pra repetir.
+  // === DECISÕES SOBRE COMO RESPONDER ===
 
-QUANDO FAZER PERGUNTA — LEIA COM ATENÇÃO:
-Antes de terminar cada mensagem, avalie o ritmo da conversa:
+  // 1. Fechamento rápido por heurística
+  if (querFecharMatricula(conteudo)) {
+    console.log('🎯 Lead quer fechar matrícula. Transferindo direto pro humano.');
+    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula' });
+    return;
+  }
 
-SITUAÇÃO 1 — Lead está conduzindo:
-O lead está fazendo perguntas, respondendo ativamente, demonstrando engajamento. Nesse caso, responda e PARE. Não adicione pergunta. Deixe o lead conduzir o ritmo.
+  // 2. Classifica intenção
+  const classificacao = await classificarMensagem(conteudo);
 
-SITUAÇÃO 2 — Conversa travou:
-O lead fez uma pergunta simples que foi respondida e não há mais tração natural. Nesse caso, faça UMA pergunta estratégica pra retomar o fluxo. Siga essa hierarquia:
-1. Se não sabe o horário disponível do lead → pergunte o horário
-2. Se sabe o horário mas não sabe o objetivo → pergunte o objetivo
-3. Se sabe os dois → convide pra conhecer a academia ou pergunte se quer saber mais sobre o plano adequado
+  if (classificacao === 'encerramento') {
+    console.log('🛑 Lead pediu pra encerrar. Despedindo.');
+    await encerrarLead(lead, 'lead expressou desinteresse');
+    return;
+  }
 
-NUNCA use essas frases ou variações delas — são proibidas em qualquer situação:
-- "Se precisar de mais informações, é só avisar"
-- "Se tiver dúvidas, é só chamar"
-- "Qualquer coisa, tô aqui"
-- "Estou à disposição"
-- "Me avisa se precisar de mais alguma coisa"
-- "Posso te ajudar com mais informações"
-- "É só falar"
-- "Tô aqui pra ajudar"
+  // 3. Busca histórico (últimas 10 mensagens)
+  const historicoBruto = await buscarHistorico(lead.id, 10);
+  const historicoSemUltima = historicoBruto.slice(0, -1);
+  const historicoFormatado = formatarHistorico(historicoSemUltima);
 
-INFORMAÇÕES PROATIVAS — NÃO FAÇA:
-- Responda APENAS o que foi perguntado. Não adicione informações extras não solicitadas.
-- Não mencione desconto à vista, parcelamento ou condições especiais a menos que o lead pergunte diretamente.
-- Não cite quantidade de aparelhos a menos que o lead esteja comparando com outra academia ou duvidando da estrutura.
-- Não mencione aulas coletivas quando o lead está perguntando só sobre musculação.
+  // 4. Calcula dias de silêncio e injeta contexto se lead ficou 2+ dias sem responder
+  const silencio = diasDeSilencio(lead);
+  let mensagemComContexto = conteudo;
 
-INFORMAÇÕES DESCONHECIDAS:
-- Se não souber a resposta ou a informação não estiver na base, NUNCA invente e NUNCA afirme que não tem.
-- Use sempre: "Essa informação prefiro não confirmar por aqui pra não te passar errado. Nossa equipe te diz certinho!"
-- NUNCA escale pro humano só porque não sabe responder. Continue a conversa normalmente.
+  if (silencio >= 2) {
+    const dias = Math.floor(silencio);
+    console.log(`💤 Lead ${lead.id} ficou ${dias} dias sem responder. Injetando contexto de retomada.`);
+    mensagemComContexto = `[CONTEXTO INTERNO — NÃO MENCIONE ISSO NA RESPOSTA: Este lead ficou ${dias} dias sem responder e voltou agora. Cumprimente de forma natural e calorosa, como "Oi [nome]! Que bom te ver por aqui." e em seguida retome o assunto de onde parou. Não seja dramático, não pergunte por que sumiu.]\n\nMensagem do lead: ${conteudo}`;
+  }
 
-TRANSFERÊNCIA:
-- Só transfira pro humano pelos gatilhos reais definidos na base. Nenhum outro motivo justifica transferência.
-- NUNCA mencione "finalizar matrícula" na transferência a menos que o lead tenha pedido explicitamente pra matricular.
-- Antes de transferir, confirme sempre se o lead quer ser conectado. Não transfira sem permissão.
-`.trim();
-}
+  // 5. Detecta escalação via IA
+  const { escalar, motivo } = await detectarEscalacao({
+    historico: historicoFormatado,
+    mensagemNova: conteudo,
+  });
 
-/**
- * Converte o histórico de mensagens do banco em formato OpenAI.
- *
- * Mensagens com direcao='entrada' viram role='user' (lead falou).
- * Mensagens com direcao='saida' viram role='assistant' (Mila respondeu).
- *
- * @param {Array} mensagens - Mensagens vindas do Supabase
- * @returns {Array} Array no formato esperado pela OpenAI
- */
-export function formatarHistorico(mensagens) {
-  return mensagens.map((m) => ({
-    role: m.direcao === 'entrada' ? 'user' : 'assistant',
-    content: m.conteudo,
-  }));
-}
+  if (escalar) {
+    console.log(`🔥 Escalação detectada pela IA: ${motivo}`);
+    await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado' });
+    return;
+  }
 
-/**
- * Limpa cache (útil em desenvolvimento e quando arquivos forem atualizados via webhook do GitHub)
- */
-export function limparCache() {
-  cacheBaseConhecimento = null;
-  cacheOfertaVigente = null;
-  console.log('✅ Cache de prompt limpo');
+  // 6. Detecta pergunta sobre fluxo de alunos — envia fluxograma
+  if (detectarPerguntaFluxo(conteudo)) {
+    console.log(`📊 Pergunta sobre fluxo detectada. Enviando fluxograma.`);
+    try {
+      await enviarImagem(
+        phone,
+        FLUXOGRAMA_URL,
+        'Fluxo de alunos por hora na Cia do Fitness. Os horários em dourado são os mais movimentados.'
+      );
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: '[fluxograma enviado]',
+      });
+    } catch (error) {
+      console.error('❌ Erro ao enviar fluxograma:', error.message);
+    }
+    // Continua pra gerar resposta de texto complementar
+  }
+
+  // 7. Gera resposta normal da Mila
+  let resposta;
+  try {
+    const systemPrompt = montarSystemPrompt();
+    resposta = await gerarResposta({
+      systemPrompt,
+      historico: historicoFormatado,
+      mensagemNova: mensagemComContexto,
+    });
+  } catch (error) {
+    console.error('❌ Erro ao gerar resposta da Mila:', error.message);
+    await gravarLog({
+      contexto: 'openai',
+      mensagem: 'Erro ao gerar resposta',
+      telefone: phone,
+      leadId: lead.id,
+      payload: { erro: error.message },
+    });
+    resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
+  }
+
+  // 8. Envia resposta
+  try {
+    await enviarTexto(phone, resposta);
+    await salvarMensagem({
+      leadId: lead.id,
+      direcao: 'saida',
+      origem: 'mila',
+      conteudo: resposta,
+    });
+    console.log(`✅ Mila respondeu pro lead ${lead.id}`);
+  } catch (error) {
+    console.error('❌ Erro ao enviar resposta:', error.message);
+    await gravarLog({
+      contexto: 'zapi',
+      mensagem: 'Erro ao enviar resposta pro lead',
+      telefone: phone,
+      leadId: lead.id,
+      payload: { erro: error.message, resposta },
+    });
+  }
 }
