@@ -11,6 +11,7 @@ import {
   salvarMensagem,
   ultimaMensagemFoiHumana,
   verificarDuplicata,
+  verificarDuplicataConteudo,
   reativarLead,
   gravarLog,
 } from '../services/supabase.js';
@@ -26,17 +27,11 @@ const TABELA_PLANOS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/o
 // Texto fixo após tabela de planos
 const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você treina sem fidelidade. Na Assinatura Anual a adesão é grátis e inclui matrícula, avaliação física e consulta nutricional. Qual delas faz mais sentido pra você?';
 
-/**
- * Extrai apenas o primeiro nome de um nome completo.
- */
 function primeiroNome(nomeCompleto) {
   if (!nomeCompleto) return null;
   return nomeCompleto.trim().split(' ')[0];
 }
 
-/**
- * Detecta se a mensagem contém indicadores de crise emocional grave.
- */
 const PALAVRAS_CRISE = [
   /suicid/i,
   /me matar/i,
@@ -55,9 +50,6 @@ function detectarCrise(texto) {
   return PALAVRAS_CRISE.some((r) => r.test(texto));
 }
 
-/**
- * Detecta se o lead está perguntando sobre fluxo de alunos ou horários de movimento.
- */
 const PALAVRAS_FLUXO = [
   /fluxo/i,
   /movimento/i,
@@ -83,10 +75,6 @@ function detectarPerguntaFluxo(texto) {
   return PALAVRAS_FLUXO.some((r) => r.test(texto));
 }
 
-/**
- * Detecta se o lead está perguntando sobre planos ou preços de forma genérica.
- * Só dispara na PRIMEIRA vez que o lead pergunta sobre planos — não em perguntas específicas.
- */
 const PALAVRAS_PLANOS = [
   /quais.{0,20}planos/i,
   /que planos/i,
@@ -109,16 +97,10 @@ function detectarPerguntaPlanos(texto) {
   return PALAVRAS_PLANOS.some((r) => r.test(texto));
 }
 
-/**
- * Verifica se a tabela já foi enviada nessa conversa (evita reenvio).
- */
 function tabelaJaFoiEnviada(historico) {
   return historico.some((m) => m.conteudo === '[tabela planos enviada]');
 }
 
-/**
- * Verifica se o lead transferido ainda está dentro da janela de silêncio (2 horas).
- */
 function dentroJanelaSilencio(lead) {
   if (lead.status !== 'transferido') return false;
   if (!lead.ultima_interacao_em) return false;
@@ -131,9 +113,6 @@ function dentroJanelaSilencio(lead) {
   return diferencaHoras < JANELA_HORAS;
 }
 
-/**
- * Calcula dias de silêncio desde a última interação do lead.
- */
 function diasDeSilencio(lead) {
   if (!lead.ultima_interacao_em) return 0;
   const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
@@ -144,7 +123,7 @@ function diasDeSilencio(lead) {
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
-  // Deduplicação: ignora webhooks já processados
+  // Deduplicação 1: por messageId do Z-API
   const messageId = webhookBody.messageId || webhookBody.id || null;
   if (messageId) {
     const duplicata = await verificarDuplicata(messageId);
@@ -193,6 +172,16 @@ export async function processarWebhook(webhookBody) {
   }
 
   const { phone, nome, conteudo, tipo } = mensagem;
+
+  // Deduplicação 2: por telefone+conteúdo numa janela de 10 segundos.
+  // Defende contra retry do Z-API com messageId diferente, webhooks
+  // duplicados que escaparam do dedup por ID, e rajadas acidentais do lead.
+  // Só aplica em texto — áudio/imagem/vídeo recebem placeholders genéricos
+  // que poderiam falsamente bater no hash.
+  if (tipo === 'texto') {
+    const duplicataConteudo = await verificarDuplicataConteudo(phone, conteudo);
+    if (duplicataConteudo) return;
+  }
 
   // Validação modo teste
   if (isTestMode() && phone !== config.testPhoneNumber) {
@@ -329,186 +318,4 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Janela de silêncio pós-escalação (2 horas)
-  if (dentroJanelaSilencio(lead)) {
-    console.log(`🤝 Lead ${lead.id} transferido e dentro da janela de silêncio. Mila em silêncio.`);
-    await salvarMensagem({
-      leadId: lead.id,
-      direcao: 'entrada',
-      origem: 'lead',
-      conteudo,
-      tipo,
-    });
-    return;
-  }
-
-  // Se transferido mas fora da janela de silêncio (2h+), verifica se humano ainda está ativo
-  if (lead.status === 'transferido') {
-    const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
-    if (humanoAtivo) {
-      console.log(`🤝 Lead ${lead.id} sendo atendido por humano. Mila em silêncio.`);
-      await salvarMensagem({
-        leadId: lead.id,
-        direcao: 'entrada',
-        origem: 'lead',
-        conteudo,
-        tipo,
-      });
-      return;
-    }
-    console.log(`🔄 Lead ${lead.id} transferido há mais de 2h sem resposta humana. Mila retomando.`);
-  }
-
-  // Salva a mensagem do lead no histórico
-  await salvarMensagem({
-    leadId: lead.id,
-    direcao: 'entrada',
-    origem: 'lead',
-    conteudo,
-    tipo,
-  });
-
-  // === DECISÕES SOBRE COMO RESPONDER ===
-
-  // 1. Fechamento rápido por heurística
-  if (querFecharMatricula(conteudo)) {
-    console.log('🎯 Lead quer fechar matrícula. Transferindo direto pro humano.');
-    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula' });
-    return;
-  }
-
-  // 2. Classifica intenção
-  const classificacao = await classificarMensagem(conteudo);
-
-  if (classificacao === 'encerramento') {
-    console.log('🛑 Lead pediu pra encerrar. Despedindo.');
-    await encerrarLead(lead, 'lead expressou desinteresse');
-    return;
-  }
-
-  // 3. Busca histórico (últimas 10 mensagens)
-  const historicoBruto = await buscarHistorico(lead.id, 10);
-  const historicoSemUltima = historicoBruto.slice(0, -1);
-  const historicoFormatado = formatarHistorico(historicoSemUltima);
-
-  // 4. Calcula dias de silêncio e injeta contexto se lead ficou 2+ dias sem responder
-  const silencio = diasDeSilencio(lead);
-  let mensagemComContexto = conteudo;
-
-  if (silencio >= 2) {
-    const dias = Math.floor(silencio);
-    console.log(`💤 Lead ${lead.id} ficou ${dias} dias sem responder. Injetando contexto de retomada.`);
-    mensagemComContexto = `[CONTEXTO INTERNO — NÃO MENCIONE ISSO NA RESPOSTA: Este lead ficou ${dias} dias sem responder e voltou agora. Cumprimente de forma natural e calorosa, como "Oi [nome]! Que bom te ver por aqui." e em seguida retome o assunto de onde parou. Não seja dramático, não pergunte por que sumiu.]\n\nMensagem do lead: ${conteudo}`;
-  }
-
-  // 5. Detecta escalação via IA
-  const { escalar, motivo } = await detectarEscalacao({
-    historico: historicoFormatado,
-    mensagemNova: conteudo,
-  });
-
-  if (escalar) {
-    console.log(`🔥 Escalação detectada pela IA: ${motivo}`);
-    await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado' });
-    return;
-  }
-
-  // 6. Detecta pergunta sobre fluxo de alunos — envia fluxograma + texto fixo
-  if (detectarPerguntaFluxo(conteudo)) {
-    console.log(`📊 Pergunta sobre fluxo detectada. Enviando fluxograma.`);
-    try {
-      await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
-      await salvarMensagem({
-        leadId: lead.id,
-        direcao: 'saida',
-        origem: 'mila',
-        conteudo: '[fluxograma enviado]',
-      });
-    } catch (error) {
-      console.error('❌ Erro ao enviar fluxograma:', error.message);
-    }
-    const textoFluxo = 'A academia funciona de segunda a sexta, das 6h às 22h, e sábado das 8h às 12h. Os horários mais vazios são entre 11h e 15h e depois das 20h. Se você puder treinar nesse período, vai encontrar mais espaço e menos movimento.';
-    try {
-      await enviarTexto(phone, textoFluxo);
-      await salvarMensagem({
-        leadId: lead.id,
-        direcao: 'saida',
-        origem: 'mila',
-        conteudo: textoFluxo,
-      });
-    } catch (error) {
-      console.error('❌ Erro ao enviar texto do fluxograma:', error.message);
-    }
-    return;
-  }
-
-  // 7. Detecta pergunta genérica sobre planos — envia tabela visual (apenas uma vez por conversa)
-  if (detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
-    console.log(`📋 Pergunta sobre planos detectada. Enviando tabela.`);
-    try {
-      await enviarImagem(phone, TABELA_PLANOS_URL, ' ');
-      await salvarMensagem({
-        leadId: lead.id,
-        direcao: 'saida',
-        origem: 'mila',
-        conteudo: '[tabela planos enviada]',
-      });
-    } catch (error) {
-      console.error('❌ Erro ao enviar tabela de planos:', error.message);
-    }
-    try {
-      await enviarTexto(phone, TEXTO_TABELA_PLANOS);
-      await salvarMensagem({
-        leadId: lead.id,
-        direcao: 'saida',
-        origem: 'mila',
-        conteudo: TEXTO_TABELA_PLANOS,
-      });
-    } catch (error) {
-      console.error('❌ Erro ao enviar texto da tabela:', error.message);
-    }
-    return;
-  }
-
-  // 8. Gera resposta normal da Mila
-  let resposta;
-  try {
-    const systemPrompt = montarSystemPrompt();
-    resposta = await gerarResposta({
-      systemPrompt,
-      historico: historicoFormatado,
-      mensagemNova: mensagemComContexto,
-    });
-  } catch (error) {
-    console.error('❌ Erro ao gerar resposta da Mila:', error.message);
-    await gravarLog({
-      contexto: 'openai',
-      mensagem: 'Erro ao gerar resposta',
-      telefone: phone,
-      leadId: lead.id,
-      payload: { erro: error.message },
-    });
-    resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
-  }
-
-  // 9. Envia resposta
-  try {
-    await enviarTexto(phone, resposta);
-    await salvarMensagem({
-      leadId: lead.id,
-      direcao: 'saida',
-      origem: 'mila',
-      conteudo: resposta,
-    });
-    console.log(`✅ Mila respondeu pro lead ${lead.id}`);
-  } catch (error) {
-    console.error('❌ Erro ao enviar resposta:', error.message);
-    await gravarLog({
-      contexto: 'zapi',
-      mensagem: 'Erro ao enviar resposta pro lead',
-      telefone: phone,
-      leadId: lead.id,
-      payload: { erro: error.message, resposta },
-    });
-  }
-}
+  // Janela de silêncio pós-escalação (
