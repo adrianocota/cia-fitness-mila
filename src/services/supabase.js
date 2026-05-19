@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
+import crypto from 'crypto';
 import { config } from '../config.js';
 
 // Cria cliente do Supabase com WebSocket explícito (Node 20 compatibility)
@@ -32,13 +33,12 @@ export async function gravarLog({ nivel = 'erro', contexto, mensagem, telefone =
       payload,
     });
   } catch (err) {
-    // Falha silenciosa — log não pode derrubar o sistema
     console.error('⚠️ Falha ao gravar log:', err.message);
   }
 }
 
 /**
- * Verifica se um messageId já foi processado.
+ * Verifica se um messageId já foi processado (dedup por ID).
  * Retorna true se for duplicado (já existe), false se for novo.
  */
 export async function verificarDuplicata(messageId) {
@@ -51,16 +51,74 @@ export async function verificarDuplicata(messageId) {
 
     if (error) {
       if (error.code === '23505') {
-        console.log(`⚠️ Webhook duplicado ignorado: ${messageId}`);
+        console.log(`⚠️ Webhook duplicado por messageId ignorado: ${messageId}`);
         return true;
       }
-      console.error('Erro ao verificar duplicata:', error.message);
+      console.error('Erro ao verificar duplicata por messageId:', error.message);
       return false;
     }
 
     return false;
   } catch (err) {
-    console.error('Erro inesperado no deduplicador:', err.message);
+    console.error('Erro inesperado no deduplicador por messageId:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Verifica se a mesma mensagem (mesmo telefone + mesmo conteúdo) já foi
+ * processada nos últimos JANELA_SEGUNDOS segundos. Defesa contra:
+ *   - Retry do Z-API com messageId diferente
+ *   - Webhooks duplicados que o dedup por ID não pega
+ *   - Lead enviando a mesma mensagem 2x acidentalmente em rajada
+ *
+ * Retorna true se for duplicata recente, false se for nova.
+ */
+const JANELA_DEDUP_SEGUNDOS = 10;
+
+export async function verificarDuplicataConteudo(telefone, conteudo) {
+  if (!telefone || !conteudo) return false;
+
+  try {
+    const hash = crypto
+      .createHash('sha256')
+      .update(`${telefone}|${conteudo.trim().toLowerCase()}`)
+      .digest('hex');
+
+    const limiteData = new Date(Date.now() - JANELA_DEDUP_SEGUNDOS * 1000).toISOString();
+
+    // 1. Procura registro recente com mesmo hash
+    const { data: existente, error: erroBusca } = await supabase
+      .from('mensagens_recentes')
+      .select('id')
+      .eq('telefone', telefone)
+      .eq('hash_conteudo', hash)
+      .gte('created_at', limiteData)
+      .limit(1)
+      .maybeSingle();
+
+    if (erroBusca) {
+      console.error('Erro ao buscar duplicata por conteúdo:', erroBusca.message);
+      return false;
+    }
+
+    if (existente) {
+      console.log(`⚠️ Mensagem duplicada por conteúdo ignorada (${telefone}): "${conteudo.substring(0, 40)}..."`);
+      return true;
+    }
+
+    // 2. Registra essa mensagem como processada
+    const { error: erroInsert } = await supabase
+      .from('mensagens_recentes')
+      .insert({ telefone, hash_conteudo: hash });
+
+    if (erroInsert) {
+      console.error('Erro ao registrar mensagem recente:', erroInsert.message);
+    }
+
+    return false;
+  } catch (err) {
+    console.error('Erro inesperado no deduplicador por conteúdo:', err.message);
     return false;
   }
 }
