@@ -22,8 +22,11 @@ import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 const FLUXOGRAMA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/fluxo_alunos_2026_tv.jpg';
 const TABELA_PLANOS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/tabela%20cia%20do%20fitness.png';
+const QUADRO_AULAS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/Quadro%20de%20Horario%20NOVO.png';
 
 const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você treina sem fidelidade. Na Assinatura Anual a adesão é grátis e inclui matrícula, avaliação física e consulta nutricional. Qual delas faz mais sentido pra você?';
+
+const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 
 function primeiroNome(nomeCompleto) {
   if (!nomeCompleto) return null;
@@ -76,9 +79,6 @@ function detectarPerguntaFluxo(texto) {
 /**
  * Detecta se o lead está pedindo informação sobre planos, preços ou valores
  * de forma genérica (não pergunta específica sobre um plano).
- *
- * Lógica: a mensagem precisa conter um TERMO sobre planos/preços E um
- * INDICADOR de pedido de informação. Os dois juntos = pedido de tabela.
  */
 const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
 
@@ -89,8 +89,28 @@ function detectarPerguntaPlanos(texto) {
   return TERMOS_PLANOS.test(texto) && INDICADORES_PEDIDO.test(texto);
 }
 
+/**
+ * Detecta se o lead está pedindo o quadro/grade de aulas coletivas
+ * (Fast Training, horários das aulas, modalidades, etc.).
+ *
+ * Lógica: precisa mencionar AULA/AULAS/COLETIVA/FAST e indicar
+ * interesse em horário, grade, quadro ou listagem de modalidades.
+ */
+const TERMOS_AULAS = /(aula|aulas|coletiv|fast training|fast.training|modalidade|modalidades|jump|zumba|combat|funcional|cardiomix|cardio mix)/i;
+
+const INDICADORES_GRADE = /(horário|hora|grade|quadro|quando|que dia|qual dia|dias|tabela|cronograma|tem.{0,10}aula|tem.{0,10}coletiv|que aulas|quais aulas|quais.{0,15}modalidade|tem.{0,15}modalidade)/i;
+
+function detectarPerguntaAulas(texto) {
+  if (!texto) return false;
+  return TERMOS_AULAS.test(texto) && INDICADORES_GRADE.test(texto);
+}
+
 function tabelaJaFoiEnviada(historico) {
   return historico.some((m) => m.conteudo === '[tabela planos enviada]');
+}
+
+function quadroAulasJaFoiEnviado(historico) {
+  return historico.some((m) => m.conteudo === '[quadro aulas enviado]');
 }
 
 function dentroJanelaSilencio(lead) {
@@ -394,6 +414,33 @@ export async function processarWebhook(webhookBody) {
       });
     } catch (error) {
       console.error('❌ Erro ao enviar texto do fluxograma:', error.message);
+    }
+    return;
+  }
+
+  if (detectarPerguntaAulas(conteudo) && !quadroAulasJaFoiEnviado(historicoBruto)) {
+    console.log(`🗓️ Pergunta sobre quadro de aulas detectada. Enviando imagem.`);
+    try {
+      await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: '[quadro aulas enviado]',
+      });
+    } catch (error) {
+      console.error('❌ Erro ao enviar quadro de aulas:', error.message);
+    }
+    try {
+      await enviarTexto(phone, TEXTO_QUADRO_AULAS);
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: TEXTO_QUADRO_AULAS,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao enviar texto do quadro de aulas:', error.message);
     }
     return;
   }
