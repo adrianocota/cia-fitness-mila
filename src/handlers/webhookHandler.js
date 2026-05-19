@@ -19,8 +19,13 @@ import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
 import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
-// URL pública do fluxograma de alunos por hora
+// URLs públicas das imagens
 const FLUXOGRAMA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/fluxo_alunos_2026_tv.jpg';
+const TABELA_PLANOS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/tabela%20cia%20do%20fitness.png';
+
+// Texto fixo após tabela de planos
+const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você treina sem fidelidade. Na Assinatura Anual a adesão é grátis e inclui matrícula, avaliação física e consulta nutricional. Qual delas faz mais sentido pra você?';
+
 /**
  * Extrai apenas o primeiro nome de um nome completo.
  */
@@ -76,6 +81,39 @@ const PALAVRAS_FLUXO = [
 function detectarPerguntaFluxo(texto) {
   if (!texto) return false;
   return PALAVRAS_FLUXO.some((r) => r.test(texto));
+}
+
+/**
+ * Detecta se o lead está perguntando sobre planos ou preços de forma genérica.
+ * Só dispara na PRIMEIRA vez que o lead pergunta sobre planos — não em perguntas específicas.
+ */
+const PALAVRAS_PLANOS = [
+  /quais.{0,20}planos/i,
+  /que planos/i,
+  /quero saber.{0,20}planos/i,
+  /quero saber.{0,20}preços/i,
+  /quero saber.{0,20}valores/i,
+  /quanto.{0,10}mensalidade/i,
+  /quanto.{0,10}custa/i,
+  /quanto.{0,10}é.{0,10}academia/i,
+  /me fala.{0,20}planos/i,
+  /me fala.{0,20}preços/i,
+  /opções.{0,20}planos/i,
+  /outros planos/i,
+  /mais planos/i,
+  /tem outros/i,
+];
+
+function detectarPerguntaPlanos(texto) {
+  if (!texto) return false;
+  return PALAVRAS_PLANOS.some((r) => r.test(texto));
+}
+
+/**
+ * Verifica se a tabela já foi enviada nessa conversa (evita reenvio).
+ */
+function tabelaJaFoiEnviada(historico) {
+  return historico.some((m) => m.conteudo === '[tabela planos enviada]');
 }
 
 /**
@@ -404,7 +442,35 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // 7. Gera resposta normal da Mila
+  // 7. Detecta pergunta genérica sobre planos — envia tabela visual (apenas uma vez por conversa)
+  if (detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
+    console.log(`📋 Pergunta sobre planos detectada. Enviando tabela.`);
+    try {
+      await enviarImagem(phone, TABELA_PLANOS_URL, ' ');
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: '[tabela planos enviada]',
+      });
+    } catch (error) {
+      console.error('❌ Erro ao enviar tabela de planos:', error.message);
+    }
+    try {
+      await enviarTexto(phone, TEXTO_TABELA_PLANOS);
+      await salvarMensagem({
+        leadId: lead.id,
+        direcao: 'saida',
+        origem: 'mila',
+        conteudo: TEXTO_TABELA_PLANOS,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao enviar texto da tabela:', error.message);
+    }
+    return;
+  }
+
+  // 8. Gera resposta normal da Mila
   let resposta;
   try {
     const systemPrompt = montarSystemPrompt();
@@ -425,7 +491,7 @@ export async function processarWebhook(webhookBody) {
     resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
   }
 
-  // 8. Envia resposta
+  // 9. Envia resposta
   try {
     await enviarTexto(phone, resposta);
     await salvarMensagem({
