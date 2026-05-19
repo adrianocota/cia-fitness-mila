@@ -73,26 +73,20 @@ function detectarPerguntaFluxo(texto) {
   return PALAVRAS_FLUXO.some((r) => r.test(texto));
 }
 
-const PALAVRAS_PLANOS = [
-  /quais.{0,20}planos/i,
-  /que planos/i,
-  /quero saber.{0,20}planos/i,
-  /quero saber.{0,20}preços/i,
-  /quero saber.{0,20}valores/i,
-  /quanto.{0,10}mensalidade/i,
-  /quanto.{0,10}custa/i,
-  /quanto.{0,10}é.{0,10}academia/i,
-  /me fala.{0,20}planos/i,
-  /me fala.{0,20}preços/i,
-  /opções.{0,20}planos/i,
-  /outros planos/i,
-  /mais planos/i,
-  /tem outros/i,
-];
+/**
+ * Detecta se o lead está pedindo informação sobre planos, preços ou valores
+ * de forma genérica (não pergunta específica sobre um plano).
+ *
+ * Lógica: a mensagem precisa conter um TERMO sobre planos/preços E um
+ * INDICADOR de pedido de informação. Os dois juntos = pedido de tabela.
+ */
+const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
+
+const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|to interessad|estou interessad|sobre|me explica|como funciona)/i;
 
 function detectarPerguntaPlanos(texto) {
   if (!texto) return false;
-  return PALAVRAS_PLANOS.some((r) => r.test(texto));
+  return TERMOS_PLANOS.test(texto) && INDICADORES_PEDIDO.test(texto);
 }
 
 function tabelaJaFoiEnviada(historico) {
