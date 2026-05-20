@@ -1,6 +1,6 @@
 # BASE DE CONHECIMENTO — MILA / CIA DO FITNESS
 
-**Versão:** 4.9
+**Versão:** 5.0
 **Aplicação:** Atendimento de leads vindos de tráfego pago e disparos do ChatPRO via WhatsApp
 
 ---
@@ -766,4 +766,4 @@ Se depois de 5-6 mensagens o lead estiver muito enrolado:
 
 ---
 
-**FIM DA BASE DE CONHECIMENTO — v4.9**
+**FIM DA BASE DE CONHECIMENTO — v5.0**
