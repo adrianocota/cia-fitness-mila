@@ -22,16 +22,16 @@ import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 const FLUXOGRAMA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/fluxo_alunos_2026_tv.jpg';
 const TABELA_PLANOS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/tabela%20cia%20do%20fitness.png';
+const TABELA_COMPLETA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/compare%20os%20planos.png';
 const QUADRO_AULAS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/Quadro%20de%20Horario%20NOVO.png';
 
 const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você treina sem fidelidade. Na Assinatura Anual a adesão é grátis e inclui matrícula, avaliação física e consulta nutricional. Qual delas faz mais sentido pra você?';
+const TEXTO_TABELA_COMPLETA = 'Aqui tá a comparação completa entre todos os planos. Qual deles faz mais sentido pro seu perfil?';
 const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
 const SUFIXO_OFERTA_QUADRO = 'Quer que eu envie o quadro de horários?';
 
 const MODALIDADES_CONFIRMADAS = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
-
-// Palavras que indicam contexto de PLANO — se presentes, não dispara quadro de aulas
 const TERMOS_CONTEXTO_PLANO = /(econômic|economic|mensal|anual|plano|assinatura|clube\+|clube plus)/i;
 
 function detectarModalidadeMencionada(texto) {
@@ -95,12 +95,39 @@ function detectarPerguntaPlanos(texto) {
   return TERMOS_PLANOS.test(texto) && INDICADORES_PEDIDO.test(texto);
 }
 
+/**
+ * Detecta se o lead está pedindo comparação entre TODOS os planos explicitamente.
+ */
+const REGEX_COMPARACAO_TODOS = /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo)/i;
+
+function detectarPedidoComparacaoCompleta(texto) {
+  if (!texto) return false;
+  return REGEX_COMPARACAO_TODOS.test(texto);
+}
+
+/**
+ * Verifica se todos os quatro planos já foram citados no histórico da conversa.
+ * Se sim, a tabela completa pode ser enviada.
+ */
+function todosOsPlanosCitados(historico) {
+  const textoCompleto = historico
+    .map((m) => m.conteudo || '')
+    .join(' ')
+    .toLowerCase();
+
+  const mensal = /assinatura mensal|r\$\s*149/.test(textoCompleto);
+  const anual = /assinatura anual|r\$\s*119/.test(textoCompleto);
+  const economica = /econômic|econômica anual|r\$\s*95/.test(textoCompleto);
+  const clube = /clube\+|clube plus|12x|r\$\s*109/.test(textoCompleto);
+
+  return mensal && anual && economica && clube;
+}
+
 const TERMOS_AULAS = /(aula|aulas|coletiv|fast training|fast.training|modalidade|modalidades|jump|zumba|combat|funcional|cardiomix|cardio mix)/i;
 const INDICADORES_GRADE = /(horário|hora|grade|quadro|quando|que dia|qual dia|dias|tabela|cronograma|tem.{0,10}aula|tem.{0,10}coletiv|que aulas|quais aulas|quais.{0,15}modalidade|tem.{0,15}modalidade)/i;
 
 function detectarPerguntaAulas(texto) {
   if (!texto) return false;
-  // Opção B: não dispara se a pergunta tem contexto de plano
   if (TERMOS_CONTEXTO_PLANO.test(texto)) return false;
   return TERMOS_AULAS.test(texto) && INDICADORES_GRADE.test(texto);
 }
@@ -120,7 +147,13 @@ function detectarConfirmacaoReenvio(texto) {
 }
 
 function tabelaJaFoiEnviada(historico) {
-  return historico.some((m) => m.conteudo === '[tabela planos enviada]');
+  return historico.some((m) =>
+    m.conteudo === '[tabela planos enviada]' || m.conteudo === '[tabela completa enviada]'
+  );
+}
+
+function tabelaCompletaJaFoiEnviada(historico) {
+  return historico.some((m) => m.conteudo === '[tabela completa enviada]');
 }
 
 function quadroAulasJaFoiEnviado(historico) {
@@ -303,6 +336,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
+  // Confirmação de envio de quadro de aulas
   if (ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) && detectarConfirmacaoReenvio(conteudo)) {
     console.log(`🗓️ Lead confirmou envio do quadro.`);
     try {
@@ -316,6 +350,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
+  // Modalidade não confirmada
   const modalidadeMencionada = detectarModalidadeMencionada(conteudo);
   if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
     console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
@@ -330,6 +365,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
+  // Fluxo de alunos
   if (detectarPerguntaFluxo(conteudo)) {
     try {
       await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
@@ -343,6 +379,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
+  // Quadro de aulas
   if (detectarPerguntaAulas(conteudo)) {
     if (!quadroAulasJaFoiEnviado(historicoBruto)) {
       try {
@@ -364,14 +401,33 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
+  // Tabela completa — só envia se todos os planos já foram citados OU lead pediu comparação explícita
+  const pedidoComparacao = detectarPedidoComparacaoCompleta(conteudo);
+  const todosPlanosCitados = todosOsPlanosCitados(historicoBruto);
+
+  if ((pedidoComparacao || todosPlanosCitados) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
+    console.log(`📊 Enviando tabela completa. Pedido explícito: ${pedidoComparacao}. Todos citados: ${todosPlanosCitados}`);
+    try {
+      await enviarImagem(phone, TABELA_COMPLETA_URL, ' ');
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[tabela completa enviada]' });
+      await enviarTexto(phone, TEXTO_TABELA_COMPLETA);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_TABELA_COMPLETA });
+    } catch (error) {
+      console.error('❌ Erro ao enviar tabela completa:', error.message);
+    }
+    return;
+  }
+
+  // Tabela básica (Mensal + Anual) — primeira pergunta sobre planos
   if (detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
+    console.log(`📋 Enviando tabela básica de planos.`);
     try {
       await enviarImagem(phone, TABELA_PLANOS_URL, ' ');
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[tabela planos enviada]' });
       await enviarTexto(phone, TEXTO_TABELA_PLANOS);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_TABELA_PLANOS });
     } catch (error) {
-      console.error('❌ Erro ao enviar tabela:', error.message);
+      console.error('❌ Erro ao enviar tabela básica:', error.message);
     }
     return;
   }
