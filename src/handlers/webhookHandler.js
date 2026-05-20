@@ -28,43 +28,33 @@ const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você tre
 const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
 
+// Frase que finaliza qualquer oferta de envio do quadro
+const SUFIXO_OFERTA_QUADRO = 'Quer que eu envie o quadro de horários?';
+
 // Modalidades confirmadas da Cia do Fitness
 const MODALIDADES_CONFIRMADAS = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
 
-// Termos que indicam pergunta sobre modalidade de aula
-const REGEX_PERGUNTA_MODALIDADE = /(que aula|que aulas|tem aula|tem aulas|aula de|aulas de|modalidade|sobre o|sobre a|horário.{0,20}aula|aula.{0,20}horário|o que é|como é a aula|como funciona.{0,20}aula)/i;
-
-/**
- * Detecta se o lead está perguntando sobre uma modalidade específica de aula.
- * Retorna o nome da modalidade mencionada ou null.
- */
 function detectarModalidadeMencionada(texto) {
   if (!texto) return null;
   const lower = texto.toLowerCase();
-
-  // Lista de todas as palavras que indicam modalidade (confirmadas + não confirmadas conhecidas)
   const todasModalidades = [
     'jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix',
     'ritbox', 'ritboxe', 'pilates', 'yoga', 'spinning', 'crossfit',
     'muay thai', 'boxe', 'dance', 'aeróbica', 'aerobica', 'step',
     'hiit', 'tabata', 'localizada', 'alongamento', 'stretching',
     'barre', 'pole', 'aqua', 'natação', 'ciclismo', 'rpm',
-    'body pump', 'body combat', 'body attack', 'sh\'bam',
+    'body pump', 'body combat', 'body attack', 'kung fu', 'kungfu',
+    'capoeira', 'jiu jitsu', 'jiujitsu', 'karate', 'judô', 'judo',
+    'dança', 'danca', 'ballet', 'forró', 'forro', 'sertanejo',
   ];
-
   for (const modalidade of todasModalidades) {
-    if (lower.includes(modalidade)) {
-      return modalidade;
-    }
+    if (lower.includes(modalidade)) return modalidade;
   }
   return null;
 }
 
-/**
- * Verifica se a modalidade mencionada é confirmada na Cia.
- */
 function modalidadeEConfirmada(modalidade) {
-  if (!modalidade) return true; // sem modalidade específica, deixa passar
+  if (!modalidade) return true;
   return MODALIDADES_CONFIRMADAS.some((m) => modalidade.includes(m) || m.includes(modalidade));
 }
 
@@ -74,16 +64,9 @@ function primeiroNome(nomeCompleto) {
 }
 
 const PALAVRAS_CRISE = [
-  /suicid/i,
-  /me matar/i,
-  /quero morrer/i,
-  /n[ãa]o quero mais viver/i,
-  /tirar minha vida/i,
-  /automutila/i,
-  /me machucar/i,
-  /n[ãa]o aguento mais/i,
-  /acabar com tudo/i,
-  /desaparecer para sempre/i,
+  /suicid/i, /me matar/i, /quero morrer/i, /n[ãa]o quero mais viver/i,
+  /tirar minha vida/i, /automutila/i, /me machucar/i, /n[ãa]o aguento mais/i,
+  /acabar com tudo/i, /desaparecer para sempre/i,
 ];
 
 function detectarCrise(texto) {
@@ -92,22 +75,10 @@ function detectarCrise(texto) {
 }
 
 const PALAVRAS_FLUXO = [
-  /fluxo/i,
-  /movimento/i,
-  /lotad/i,
-  /chei/i,
-  /vazi/i,
-  /tranquil/i,
-  /fila/i,
-  /quantos alunos/i,
-  /horário.{0,20}vaz/i,
-  /horário.{0,20}tranquil/i,
-  /horário.{0,20}menos gente/i,
-  /menos movimentad/i,
-  /mais calmo/i,
-  /quando.{0,20}vaz/i,
-  /quando.{0,20}menos/i,
-  /horário.{0,20}cheio/i,
+  /fluxo/i, /movimento/i, /lotad/i, /chei/i, /vazi/i, /tranquil/i, /fila/i,
+  /quantos alunos/i, /horário.{0,20}vaz/i, /horário.{0,20}tranquil/i,
+  /horário.{0,20}menos gente/i, /menos movimentad/i, /mais calmo/i,
+  /quando.{0,20}vaz/i, /quando.{0,20}menos/i, /horário.{0,20}cheio/i,
   /horário.{0,20}lotad/i,
 ];
 
@@ -137,7 +108,7 @@ const CONFIRMACOES_REENVIO = [
   /^manda$/i, /^manda sim$/i, /^por favor$/i, /^por fav$/i,
   /^claro$/i, /^quero$/i, /^quero sim$/i, /^tá$/i, /^ta$/i,
   /^ok$/i, /^isso$/i, /^manda novamente$/i, /^manda de novo$/i,
-  /^envia$/i, /^envia sim$/i,
+  /^envia$/i, /^envia sim$/i, /^sim por favor$/i, /^sim, por favor$/i,
 ];
 
 function detectarConfirmacaoReenvio(texto) {
@@ -151,14 +122,25 @@ function tabelaJaFoiEnviada(historico) {
 }
 
 function quadroAulasJaFoiEnviado(historico) {
-  return historico.some((m) => m.conteudo === '[quadro aulas enviado]');
+  return historico.some((m) =>
+    m.conteudo === '[quadro aulas enviado]' || m.conteudo === '[quadro aulas reenviado]'
+  );
 }
 
-function ultimaMensagemMilaFoiPerguntaReenvio(historico) {
+/**
+ * Verifica se a última mensagem da Mila foi qualquer tipo de oferta de envio do quadro.
+ * Cobre tanto o reenvio ("Já te enviei...") quanto a oferta após modalidade não confirmada
+ * ("X não temos... Quer que eu envie o quadro de horários?").
+ */
+function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
   const saidaMila = historico
     .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
     .slice(-1)[0];
-  return saidaMila?.conteudo === TEXTO_REENVIO_QUADRO;
+  if (!saidaMila?.conteudo) return false;
+  return (
+    saidaMila.conteudo === TEXTO_REENVIO_QUADRO ||
+    saidaMila.conteudo.endsWith(SUFIXO_OFERTA_QUADRO)
+  );
 }
 
 function dentroJanelaSilencio(lead) {
@@ -324,10 +306,27 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Detecta pergunta sobre modalidade NÃO confirmada — intercepta antes da OpenAI
+  // Lead confirmou que quer receber o quadro (após qualquer oferta da Mila)
+  if (
+    ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) &&
+    detectarConfirmacaoReenvio(conteudo)
+  ) {
+    console.log(`🗓️ Lead confirmou envio do quadro de aulas.`);
+    try {
+      await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas enviado]' });
+      await enviarTexto(phone, TEXTO_QUADRO_AULAS);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
+    } catch (error) {
+      console.error('❌ Erro ao enviar quadro confirmado:', error.message);
+    }
+    return;
+  }
+
+  // Detecta modalidade não confirmada — intercepta antes da OpenAI
   const modalidadeMencionada = detectarModalidadeMencionada(conteudo);
   if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
-    console.log(`🚫 Modalidade não confirmada mencionada: ${modalidadeMencionada}`);
+    console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
     const nomeFormatado = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
     const respostaModalidade = `${nomeFormatado} não temos. Nossas aulas coletivas são Jump, Combat, Zumba, Funcional e CardioMix, todas em formato Fast Training de 30 minutos. Quer que eu envie o quadro de horários?`;
     try {
@@ -343,15 +342,11 @@ export async function processarWebhook(webhookBody) {
     try {
       await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
-    } catch (error) {
-      console.error('❌ Erro ao enviar fluxograma:', error.message);
-    }
-    const textoFluxo = 'A academia funciona de segunda a sexta, das 6h às 22h, e sábado das 8h às 12h. Os horários mais vazios são entre 11h e 15h e depois das 20h. Se você puder treinar nesse período, vai encontrar mais espaço e menos movimento.';
-    try {
+      const textoFluxo = 'A academia funciona de segunda a sexta, das 6h às 22h, e sábado das 8h às 12h. Os horários mais vazios são entre 11h e 15h e depois das 20h. Se você puder treinar nesse período, vai encontrar mais espaço e menos movimento.';
       await enviarTexto(phone, textoFluxo);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: textoFluxo });
     } catch (error) {
-      console.error('❌ Erro ao enviar texto do fluxograma:', error.message);
+      console.error('❌ Erro ao enviar fluxograma:', error.message);
     }
     return;
   }
@@ -361,14 +356,10 @@ export async function processarWebhook(webhookBody) {
       try {
         await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
         await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas enviado]' });
-      } catch (error) {
-        console.error('❌ Erro ao enviar quadro:', error.message);
-      }
-      try {
         await enviarTexto(phone, TEXTO_QUADRO_AULAS);
         await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
       } catch (error) {
-        console.error('❌ Erro ao enviar texto do quadro:', error.message);
+        console.error('❌ Erro ao enviar quadro:', error.message);
       }
     } else {
       try {
@@ -377,18 +368,6 @@ export async function processarWebhook(webhookBody) {
       } catch (error) {
         console.error('❌ Erro ao enviar pergunta de reenvio:', error.message);
       }
-    }
-    return;
-  }
-
-  if (quadroAulasJaFoiEnviado(historicoBruto) && ultimaMensagemMilaFoiPerguntaReenvio(historicoBruto) && detectarConfirmacaoReenvio(conteudo)) {
-    try {
-      await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas reenviado]' });
-      await enviarTexto(phone, TEXTO_QUADRO_AULAS);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
-    } catch (error) {
-      console.error('❌ Erro ao reenviar quadro:', error.message);
     }
     return;
   }
