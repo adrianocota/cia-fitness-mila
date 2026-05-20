@@ -4,31 +4,20 @@ import { atualizarStatusLead, buscarHistorico } from '../services/supabase.js';
 import { gerarResposta } from '../services/openai.js';
 import supabase from '../services/supabase.js';
 
-/**
- * Extrai apenas o primeiro nome de um nome completo.
- */
 function primeiroNome(nomeCompleto) {
   if (!nomeCompleto) return '';
   return nomeCompleto.trim().split(' ')[0];
 }
 
-/**
- * Retorna a hora atual em Brasília (UTC-3).
- */
 function horaBrasilia() {
   const agora = new Date();
-  // UTC-3: subtrai 3 horas
   const brasilia = new Date(agora.getTime() - 3 * 60 * 60 * 1000);
   return {
     hora: brasilia.getUTCHours(),
-    diaSemana: brasilia.getUTCDay(), // 0=dom, 1=seg, ..., 6=sab
+    diaSemana: brasilia.getUTCDay(),
   };
 }
 
-/**
- * Busca qual(is) recepcionista(s) está(ão) de plantão agora.
- * Usa horário de Brasília convertido do UTC.
- */
 async function buscarRecepcionistasDeAgora() {
   const { hora, diaSemana } = horaBrasilia();
 
@@ -48,14 +37,9 @@ async function buscarRecepcionistasDeAgora() {
   return data || [];
 }
 
-/**
- * Busca a próxima recepcionista que vai entrar no plantão.
- * Usada quando nenhuma está de plantão agora (ex: depois das 22h).
- */
 async function buscarProximaRecepcionista() {
   const { hora, diaSemana } = horaBrasilia();
 
-  // Busca recepcionistas que ainda vão começar hoje
   const { data: hoje, error: erroHoje } = await supabase
     .from('recepcionistas')
     .select('*')
@@ -65,11 +49,8 @@ async function buscarProximaRecepcionista() {
     .order('hora_inicio', { ascending: true })
     .limit(1);
 
-  if (!erroHoje && hoje && hoje.length > 0) {
-    return hoje[0];
-  }
+  if (!erroHoje && hoje && hoje.length > 0) return hoje[0];
 
-  // Se não tem mais ninguém hoje, busca o primeiro de amanhã
   const amanha = (diaSemana + 1) % 7;
 
   const { data: prox, error: erroProx } = await supabase
@@ -80,25 +61,15 @@ async function buscarProximaRecepcionista() {
     .order('hora_inicio', { ascending: true })
     .limit(1);
 
-  if (!erroProx && prox && prox.length > 0) {
-    return prox[0];
-  }
+  if (!erroProx && prox && prox.length > 0) return prox[0];
 
   return null;
 }
 
-/**
- * Seleciona qual recepcionista vai receber o lead agora,
- * usando round-robin por última escalação.
- *
- * Se só tem uma de plantão: ela pega.
- * Se tem duas ou mais: pega quem fez a última escalação há mais tempo.
- */
 async function selecionarRecepcionista(recepcionistas) {
   if (!recepcionistas || recepcionistas.length === 0) return null;
   if (recepcionistas.length === 1) return recepcionistas[0];
 
-  // Ordena: quem nunca recebeu primeiro, depois quem recebeu há mais tempo
   const ordenadas = [...recepcionistas].sort((a, b) => {
     if (!a.ultima_escalacao_em) return -1;
     if (!b.ultima_escalacao_em) return 1;
@@ -108,9 +79,6 @@ async function selecionarRecepcionista(recepcionistas) {
   return ordenadas[0];
 }
 
-/**
- * Registra que a recepcionista recebeu um lead agora.
- */
 async function registrarEscalacao(recepcionistaId) {
   const { error } = await supabase
     .from('recepcionistas')
@@ -118,19 +86,13 @@ async function registrarEscalacao(recepcionistaId) {
     .eq('id', recepcionistaId);
 
   if (error) {
-    console.error('Erro ao registrar escalação da recepcionista:', error.message);
+    console.error('Erro ao registrar escalação:', error.message);
   }
 }
 
-/**
- * Mensagem que a Mila envia pro lead avisando que vai transferir pro humano.
- */
 const MENSAGEM_DESPEDIDA = (nome) =>
   `Perfeito${nome ? ', ' + primeiroNome(nome) : ''}! Vou te conectar agora com nossa equipe presencial. Eles vão te ajudar com tudo. Em alguns minutos uma de nossas atendentes te chama por aqui mesmo, tá bom?`;
 
-/**
- * Gera resumo inteligente da conversa usando a OpenAI.
- */
 async function gerarResumoConversa(historico, motivo) {
   try {
     const conversaFormatada = historico
@@ -168,7 +130,7 @@ Responda APENAS com o resumo, sem nenhuma outra informação.`;
 
     return resumo?.trim() || 'Resumo não disponível.';
   } catch (error) {
-    console.error('❌ Erro ao gerar resumo da conversa:', error.message);
+    console.error('❌ Erro ao gerar resumo:', error.message);
     const mensagensLead = historico
       .filter((m) => m.direcao === 'entrada')
       .slice(-2)
@@ -178,29 +140,23 @@ Responda APENAS com o resumo, sem nenhuma outra informação.`;
   }
 }
 
-/**
- * Executa a transferência completa de um lead pro humano.
- */
 export async function transferirParaHumano({ lead, motivo }) {
-  console.log(`🔥 Transferindo lead ${lead.id} (${lead.telefone}) pro humano. Motivo: ${motivo}`);
+  console.log(`🔥 Transferindo lead ${lead.id} (${lead.telefone}). Motivo: ${motivo}`);
 
-  // 1. Despede do lead
   try {
     await enviarTexto(lead.telefone, MENSAGEM_DESPEDIDA(lead.nome));
   } catch (error) {
-    console.error('❌ Erro ao enviar mensagem de despedida:', error.message);
+    console.error('❌ Erro ao enviar despedida:', error.message);
   }
 
-  // 2. Atualiza status no banco
   try {
     await atualizarStatusLead(lead.id, 'transferido', `Transferido: ${motivo}`);
   } catch (error) {
-    console.error('❌ Erro ao atualizar status do lead:', error.message);
+    console.error('❌ Erro ao atualizar status:', error.message);
   }
 
-  // 3. Notifica o grupo interno
   if (!config.group.leadsId) {
-    console.warn('⚠️ GROUP_LEADS_ID não configurado. Pulando notificação no grupo.');
+    console.warn('⚠️ GROUP_LEADS_ID não configurado.');
     return;
   }
 
@@ -208,42 +164,41 @@ export async function transferirParaHumano({ lead, motivo }) {
     const historico = await buscarHistorico(lead.id, 20);
     const resumo = await gerarResumoConversa(historico, motivo);
 
-    // 4. Descobre quem está de plantão agora
     const recepcionistasAgora = await buscarRecepcionistasDeAgora();
     const selecionada = await selecionarRecepcionista(recepcionistasAgora);
 
-    let linhaRecepcionista = '';
+    let cabecalhoRecepcionista = '';
+    let linhaPlantao = '';
 
     if (selecionada) {
-      // Tem alguém de plantão agora
       await registrarEscalacao(selecionada.id);
-      linhaRecepcionista = `👩 Plantão agora: ${selecionada.nome}`;
+      cabecalhoRecepcionista = `👩 ${selecionada.nome.toUpperCase()} — você é a plantão agora!\n\n`;
+      linhaPlantao = `Plantão: ${selecionada.nome}`;
       console.log(`✅ Lead roteado para ${selecionada.nome}`);
     } else {
-      // Ninguém de plantão agora — busca próxima
       const proxima = await buscarProximaRecepcionista();
       if (proxima) {
         const diaNome = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
         const { diaSemana } = horaBrasilia();
         const amanha = (diaSemana + 1) % 7;
-        const diaTexto = proxima.dia_semana.includes(diaSemana)
-          ? 'hoje'
-          : `${diaNome[amanha]}`;
-        linhaRecepcionista = `⏰ Fora do horário. Próxima: ${proxima.nome} às ${proxima.hora_inicio}h (${diaTexto})`;
+        const diaTexto = proxima.dia_semana.includes(diaSemana) ? 'hoje' : diaNome[amanha];
+        cabecalhoRecepcionista = `⏰ Fora do horário de atendimento\n\n`;
+        linhaPlantao = `Próxima: ${proxima.nome} às ${proxima.hora_inicio}h (${diaTexto})`;
         console.log(`⏰ Fora do horário. Próxima: ${proxima.nome} às ${proxima.hora_inicio}h`);
       } else {
-        linhaRecepcionista = '⚠️ Nenhuma recepcionista encontrada no sistema.';
+        cabecalhoRecepcionista = `⚠️ Nenhuma recepcionista encontrada\n\n`;
+        linhaPlantao = 'Verificar escala manualmente';
         console.warn('⚠️ Nenhuma recepcionista encontrada.');
       }
     }
 
-    const mensagemGrupo = `🔥 LEAD QUENTE
+    const mensagemGrupo = `${cabecalhoRecepcionista}🔥 LEAD QUENTE
 Nome: ${primeiroNome(lead.nome) || 'não informado'}
 Telefone: ${lead.telefone}
 Campanha: ${lead.campanha_origem || 'não informada'}
 📋 Resumo: ${resumo}
 Motivo: ${motivo}
-${linhaRecepcionista}
+${linhaPlantao}
 👉 Continue a conversa no contato dele.`;
 
     await enviarMensagemGrupo(config.group.leadsId, mensagemGrupo);
@@ -253,11 +208,8 @@ ${linhaRecepcionista}
   }
 }
 
-/**
- * Marca lead como encerrado.
- */
 export async function encerrarLead(lead, motivo = 'lead pediu pra encerrar') {
-  console.log(`🛑 Encerrando lead ${lead.id} (${lead.telefone}). Motivo: ${motivo}`);
+  console.log(`🛑 Encerrando lead ${lead.id}. Motivo: ${motivo}`);
 
   try {
     await enviarTexto(
@@ -265,7 +217,7 @@ export async function encerrarLead(lead, motivo = 'lead pediu pra encerrar') {
       `Tranquilo${lead.nome ? ', ' + primeiroNome(lead.nome) : ''}! Qualquer coisa no futuro, sabe onde me encontrar. Abraço!`
     );
   } catch (error) {
-    console.error('❌ Erro ao enviar despedida de encerramento:', error.message);
+    console.error('❌ Erro ao enviar despedida:', error.message);
   }
 
   try {
