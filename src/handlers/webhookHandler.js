@@ -27,12 +27,12 @@ const QUADRO_AULAS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/ob
 const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você treina sem fidelidade. Na Assinatura Anual a adesão é grátis e inclui matrícula, avaliação física e consulta nutricional. Qual delas faz mais sentido pra você?';
 const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
-
-// Frase que finaliza qualquer oferta de envio do quadro
 const SUFIXO_OFERTA_QUADRO = 'Quer que eu envie o quadro de horários?';
 
-// Modalidades confirmadas da Cia do Fitness
 const MODALIDADES_CONFIRMADAS = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
+
+// Palavras que indicam contexto de PLANO — se presentes, não dispara quadro de aulas
+const TERMOS_CONTEXTO_PLANO = /(econômic|economic|mensal|anual|plano|assinatura|clube\+|clube plus)/i;
 
 function detectarModalidadeMencionada(texto) {
   if (!texto) return null;
@@ -100,6 +100,8 @@ const INDICADORES_GRADE = /(horário|hora|grade|quadro|quando|que dia|qual dia|d
 
 function detectarPerguntaAulas(texto) {
   if (!texto) return false;
+  // Opção B: não dispara se a pergunta tem contexto de plano
+  if (TERMOS_CONTEXTO_PLANO.test(texto)) return false;
   return TERMOS_AULAS.test(texto) && INDICADORES_GRADE.test(texto);
 }
 
@@ -127,11 +129,6 @@ function quadroAulasJaFoiEnviado(historico) {
   );
 }
 
-/**
- * Verifica se a última mensagem da Mila foi qualquer tipo de oferta de envio do quadro.
- * Cobre tanto o reenvio ("Já te enviei...") quanto a oferta após modalidade não confirmada
- * ("X não temos... Quer que eu envie o quadro de horários?").
- */
 function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
   const saidaMila = historico
     .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
@@ -306,12 +303,8 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Lead confirmou que quer receber o quadro (após qualquer oferta da Mila)
-  if (
-    ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) &&
-    detectarConfirmacaoReenvio(conteudo)
-  ) {
-    console.log(`🗓️ Lead confirmou envio do quadro de aulas.`);
+  if (ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) && detectarConfirmacaoReenvio(conteudo)) {
+    console.log(`🗓️ Lead confirmou envio do quadro.`);
     try {
       await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas enviado]' });
@@ -323,7 +316,6 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Detecta modalidade não confirmada — intercepta antes da OpenAI
   const modalidadeMencionada = detectarModalidadeMencionada(conteudo);
   if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
     console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
