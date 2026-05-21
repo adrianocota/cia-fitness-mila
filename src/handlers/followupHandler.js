@@ -7,50 +7,30 @@ import {
 } from '../services/supabase.js';
 import { enviarTexto } from '../services/zapi.js';
 
-/**
- * As 4 mensagens da sequência de follow-up.
- * Substituições: {nome}, {campanha}
- */
 const MENSAGENS_FOLLOWUP = {
-  1: (nome, campanha) =>
-    `Oi${nome ? ', ' + nome : ''}! Tudo bem? Passando aqui pra ver se você ficou com alguma dúvida sobre a ${campanha || 'nossa campanha'}. Se precisar de qualquer informação, é só me chamar, tô por aqui!`,
-
+  1: (nome) =>
+    `Oi${nome ? ', ' + nome : ''}! Tudo bem? Passando aqui pra ver se ficou alguma dúvida sobre a Cia do Fitness. Pode me chamar!`,
   3: (nome) =>
     `Oi${nome ? ', ' + nome : ''}! Se ficou alguma dúvida sobre o plano, uma coisa que ajuda muito é vir conhecer a academia pessoalmente. Pode passar quando quiser, ou se preferir, te agendo um horário com nossa equipe pra te receber direitinho. Topa?`,
-
   7: (nome) =>
-    `Oi${nome ? ', ' + nome : ''}! Sabe o que a maioria dos nossos alunos novos fala depois? Que se arrependem de ter demorado tanto pra começar. Se você tá adiando essa decisão, vale a pena destravar agora. Tô aqui pra te ajudar no que precisar.`,
-
+    `Oi${nome ? ', ' + nome : ''}! Sabe o que a maioria dos nossos alunos novos fala depois? Que se arrependem de ter demorado tanto pra começar. Se você tá adiando essa decisão, vale a pena destravar agora. Se quiser dar o primeiro passo, é só me chamar.`,
   14: (nome) =>
     `Oi${nome ? ', ' + nome : ''}! Vou parar de te chamar aqui pra não atrapalhar. Se um dia tiver vontade de começar a treinar, é só chamar a Mila aqui que te ajudo. Abraço e tudo de bom!`,
 };
 
-/**
- * Verifica se a hora atual está dentro da janela permitida pro follow-up do dia X.
- */
 function dentroDaJanela(dia) {
   const agora = new Date();
   const hora = agora.getHours();
-  const diaSemana = agora.getDay(); // 0 = domingo, 6 = sábado
+  const diaSemana = agora.getDay();
 
-  // Não dispara em domingo
   if (diaSemana === 0) return false;
-
-  // Não dispara sábado depois das 12h
   if (diaSemana === 6 && hora >= 12) return false;
 
-  // Verifica janela específica do dia
   const janela = config.followup.horarios[`dia${dia}`];
   if (!janela) return false;
-
   return hora >= janela.inicio && hora < janela.fim;
 }
 
-/**
- * Processa follow-up de um dia específico (1, 3, 7 ou 14).
- *
- * @param {number} dia
- */
 async function processarFollowupDia(dia) {
   if (!dentroDaJanela(dia)) {
     console.log(`⏰ Fora da janela do dia ${dia}. Pulando.`);
@@ -69,20 +49,16 @@ async function processarFollowupDia(dia) {
 
   for (const lead of leads) {
     try {
-      // Verifica se humano não tá conduzindo a conversa
       const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
       if (humanoAtivo) {
         console.log(`👤 Lead ${lead.id} está com humano. Pulando.`);
         continue;
       }
 
-      // Monta mensagem
-      const mensagem = MENSAGENS_FOLLOWUP[dia](lead.nome, lead.campanha_origem);
+      const mensagem = MENSAGENS_FOLLOWUP[dia](lead.nome);
 
-      // Envia via Z-API
       await enviarTexto(lead.telefone, mensagem);
 
-      // Salva no histórico
       await salvarMensagem({
         leadId: lead.id,
         direcao: 'saida',
@@ -90,12 +66,10 @@ async function processarFollowupDia(dia) {
         conteudo: mensagem,
       });
 
-      // Registra follow-up disparado
       await registrarFollowup(lead.id, dia);
 
       console.log(`✅ Follow-up dia ${dia} enviado pro lead ${lead.id}`);
 
-      // Espera 2 segundos entre disparos (anti-spam)
       await new Promise((resolve) => setTimeout(resolve, 2000));
     } catch (error) {
       console.error(`❌ Erro ao processar follow-up do lead ${lead.id}:`, error.message);
@@ -103,10 +77,6 @@ async function processarFollowupDia(dia) {
   }
 }
 
-/**
- * Função pública chamada pelo cron.
- * Processa todos os dias (1, 3, 7, 14) na sequência.
- */
 export async function rodarFollowups() {
   console.log('🚀 Iniciando ciclo de follow-ups');
   console.log(`Hora atual: ${new Date().toLocaleString('pt-BR')}`);
