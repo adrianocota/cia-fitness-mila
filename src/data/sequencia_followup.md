@@ -1,6 +1,6 @@
 # SEQUÊNCIA DE FOLLOW-UP — MILA / CIA DO FITNESS
 
-**Versão:** 1.0
+**Versão:** 1.1
 **Cadência:** 4 mensagens em 14 dias
 
 ---
@@ -36,7 +36,7 @@ Não disparar antes das 9h, depois das 20h, sábado de tarde ou domingo. Se o di
 
 ### Dia 1 — Lembrança gentil
 
-> "Oi, [nome]! Tudo bem? Passando aqui pra ver se você ficou com alguma dúvida sobre a [campanha]. Se precisar de qualquer informação, é só me chamar, tô por aqui!"
+> "Oi, [nome]! Tudo bem? Passando aqui pra ver se ficou alguma dúvida sobre a Cia do Fitness. Pode me chamar!"
 
 ### Dia 3 — Convite pra conhecer
 
@@ -44,7 +44,7 @@ Não disparar antes das 9h, depois das 20h, sábado de tarde ou domingo. Se o di
 
 ### Dia 7 — Despertar decisão
 
-> "Oi, [nome]! Sabe o que a maioria dos nossos alunos novos fala depois? Que se arrependem de ter demorado tanto pra começar. Se você tá adiando essa decisão, vale a pena destravar agora. Tô aqui pra te ajudar no que precisar."
+> "Oi, [nome]! Sabe o que a maioria dos nossos alunos novos fala depois? Que se arrependem de ter demorado tanto pra começar. Se você tá adiando essa decisão, vale a pena destravar agora. Se quiser dar o primeiro passo, é só me chamar."
 
 ### Dia 14 — Despedida elegante
 
@@ -56,15 +56,15 @@ Não disparar antes das 9h, depois das 20h, sábado de tarde ou domingo. Se o di
 
 ### Categoria 1: Evasiva (CONTINUA sequência)
 
-Exemplos: "depois falo", "vou ver", "tô ocupado", "vou pensar", "ainda não decidi", "vou conversar com [esposa/marido]", "tô esperando o salário"
+Exemplos: "depois falo", "vou ver", "tô ocupado", "vou pensar", "ainda não decidi", "vou conversar com esposa/marido", "tô esperando o salário"
 
-Resposta da Mila: "Tranquilo, [nome]! Quando puder, é só chamar. Tô por aqui."
+Resposta da Mila: "Tranquilo, [nome]! Quando puder, é só chamar."
 
 **Mantém o lead na fila. Não zera o relógio.**
 
 ### Categoria 2: Engajamento real (PAUSA sequência)
 
-Exemplos: "Quanto fica no parcelado?", "Tem aula de pilates?", "Pode ser amanhã às 15h?", qualquer pergunta concreta
+Exemplos: "Quanto fica no parcelado?", "Tem aula de pilates?", "Pode ser amanhã às 15h?", qualquer pergunta concreta.
 
 Comportamento: entra em modo conversa normal. Se sumir de novo depois, reativa sequência do Dia 1 (zera relógio).
 
@@ -84,4 +84,7 @@ Resposta da Mila: "Tranquilo, [nome]! Qualquer coisa no futuro, sabe onde me enc
 |---|---|
 | Resposta evasiva | Continua sequência |
 | Resposta com pergunta/interesse | Pausa, reativa se sumir (do Dia 1) |
-| Respos
+| Resposta de encerramento explícito | Para definitivamente |
+| Lead transferido pro humano | Para |
+| Lead matriculado | Para |
+| Humano assumiu a conversa | Pula o disparo |
