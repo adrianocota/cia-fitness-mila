@@ -29,10 +29,13 @@ const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você tre
 const TEXTO_TABELA_COMPLETA = 'Aqui tá a comparação completa entre todos os planos. Qual deles faz mais sentido pro seu perfil?';
 const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
+const TEXTO_FLUXO = 'Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 11h e 15h e depois das 20h você encontra menos movimento.';
+const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
 const SUFIXO_OFERTA_QUADRO = 'Quer que eu envie o quadro de horários?';
 
 const MODALIDADES_CONFIRMADAS = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
 const TERMOS_CONTEXTO_PLANO = /(econômic|economic|mensal|anual|plano|assinatura|clube\+|clube plus)/i;
+const TERMOS_AVALIANDO = /(avaliando|comparando|pesquisando|ainda.{0,15}decid|ainda.{0,15}pens)/i;
 
 function detectarModalidadeMencionada(texto) {
   if (!texto) return null;
@@ -92,12 +95,10 @@ const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me pass
 
 function detectarPerguntaPlanos(texto) {
   if (!texto) return false;
+  if (TERMOS_AVALIANDO.test(texto)) return false;
   return TERMOS_PLANOS.test(texto) && INDICADORES_PEDIDO.test(texto);
 }
 
-/**
- * Detecta se o lead está pedindo comparação entre TODOS os planos explicitamente.
- */
 const REGEX_COMPARACAO_TODOS = /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo)/i;
 
 function detectarPedidoComparacaoCompleta(texto) {
@@ -105,10 +106,6 @@ function detectarPedidoComparacaoCompleta(texto) {
   return REGEX_COMPARACAO_TODOS.test(texto);
 }
 
-/**
- * Verifica se todos os quatro planos já foram citados no histórico da conversa.
- * Se sim, a tabela completa pode ser enviada.
- */
 function todosOsPlanosCitados(historico) {
   const textoCompleto = historico
     .map((m) => m.conteudo || '')
@@ -162,6 +159,10 @@ function quadroAulasJaFoiEnviado(historico) {
   );
 }
 
+function fluxogramaJaFoiEnviado(historico) {
+  return historico.some((m) => m.conteudo === '[fluxograma enviado]');
+}
+
 function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
   const saidaMila = historico
     .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
@@ -171,6 +172,14 @@ function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
     saidaMila.conteudo === TEXTO_REENVIO_QUADRO ||
     saidaMila.conteudo.endsWith(SUFIXO_OFERTA_QUADRO)
   );
+}
+
+function ultimaMensagemMilaFoiOfertaDeFluxo(historico) {
+  const saidaMila = historico
+    .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
+    .slice(-1)[0];
+  if (!saidaMila?.conteudo) return false;
+  return saidaMila.conteudo === TEXTO_REENVIO_FLUXO;
 }
 
 function dentroJanelaSilencio(lead) {
@@ -336,7 +345,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Confirmação de envio de quadro de aulas
+  // Confirmação de reenvio do quadro de aulas
   if (ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) && detectarConfirmacaoReenvio(conteudo)) {
     console.log(`🗓️ Lead confirmou envio do quadro.`);
     try {
@@ -346,6 +355,20 @@ export async function processarWebhook(webhookBody) {
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
     } catch (error) {
       console.error('❌ Erro ao enviar quadro confirmado:', error.message);
+    }
+    return;
+  }
+
+  // Confirmação de reenvio do fluxograma
+  if (ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto) && detectarConfirmacaoReenvio(conteudo)) {
+    console.log(`📊 Lead confirmou reenvio do fluxograma.`);
+    try {
+      await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
+      await enviarTexto(phone, TEXTO_FLUXO);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
+    } catch (error) {
+      console.error('❌ Erro ao reenviar fluxograma:', error.message);
     }
     return;
   }
@@ -367,14 +390,22 @@ export async function processarWebhook(webhookBody) {
 
   // Fluxo de alunos
   if (detectarPerguntaFluxo(conteudo)) {
-    try {
-      await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
-      const textoFluxo = 'A academia funciona de segunda a sexta, das 6h às 22h, e sábado das 8h às 12h. Os horários mais vazios são entre 11h e 15h e depois das 20h. Se você puder treinar nesse período, vai encontrar mais espaço e menos movimento.';
-      await enviarTexto(phone, textoFluxo);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: textoFluxo });
-    } catch (error) {
-      console.error('❌ Erro ao enviar fluxograma:', error.message);
+    if (!fluxogramaJaFoiEnviado(historicoBruto)) {
+      try {
+        await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
+        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
+        await enviarTexto(phone, TEXTO_FLUXO);
+        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
+      } catch (error) {
+        console.error('❌ Erro ao enviar fluxograma:', error.message);
+      }
+    } else {
+      try {
+        await enviarTexto(phone, TEXTO_REENVIO_FLUXO);
+        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_REENVIO_FLUXO });
+      } catch (error) {
+        console.error('❌ Erro ao perguntar reenvio fluxograma:', error.message);
+      }
     }
     return;
   }
