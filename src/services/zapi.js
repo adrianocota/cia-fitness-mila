@@ -12,39 +12,22 @@ const zapi = axios.create({
 
 function calcularDelayDigitacao(message) {
   const chars = message.length;
-  const delay = Math.min(Math.max(Math.floor(chars / 30) * 1000, 1500), 6000);
-  return delay;
-}
-
-async function simularDigitando(phone, duracaoMs) {
-  try {
-    await zapi.post('/send-chat-state', {
-      phone,
-      chatState: 'TYPING',
-    });
-    await new Promise((resolve) => setTimeout(resolve, duracaoMs));
-    await zapi.post('/send-chat-state', {
-      phone,
-      chatState: 'AVAILABLE',
-    });
-  } catch (error) {
-    // Falha silenciosa — não interrompe o envio da mensagem
-    console.warn(`⚠️ Erro ao simular digitando pra ${phone}:`, error.message);
-  }
+  // delayTyping é em segundos (1-15)
+  const segundos = Math.min(Math.max(Math.ceil(chars / 60), 1), 8);
+  return segundos;
 }
 
 export async function enviarTexto(phone, message) {
-  const delay = calcularDelayDigitacao(message);
+  const delayTyping = calcularDelayDigitacao(message);
 
   try {
-    await simularDigitando(phone, delay);
-
     const response = await zapi.post('/send-text', {
       phone,
       message,
+      delayTyping,
     });
 
-    console.log(`📤 Mensagem enviada pra ${phone} (digitando: ${delay}ms)`);
+    console.log(`📤 Mensagem enviada pra ${phone} (digitando: ${delayTyping}s)`);
     return response.data;
   } catch (error) {
     console.error(`❌ Erro ao enviar texto pra ${phone}:`, error.response?.data || error.message);
@@ -54,8 +37,6 @@ export async function enviarTexto(phone, message) {
 
 export async function enviarImagem(phone, imageUrl, caption = '') {
   try {
-    await simularDigitando(phone, 1500);
-
     const response = await zapi.post('/send-image', {
       phone,
       image: imageUrl,
