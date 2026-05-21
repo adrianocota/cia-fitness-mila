@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { config } from '../config.js';
 
-// Cliente HTTP configurado com baseURL e token da Z-API
 const zapi = axios.create({
   baseURL: config.zapi.baseUrl,
   headers: {
@@ -11,40 +10,41 @@ const zapi = axios.create({
   timeout: 15000,
 });
 
-/**
- * Calcula delay realista baseado no tamanho da mensagem.
- * Simula tempo de digitação humana.
- *
- * @param {string} message - Texto da mensagem
- * @returns {number} delay em milissegundos
- */
 function calcularDelayDigitacao(message) {
   const chars = message.length;
-  // 1 segundo por cada 30 caracteres, mínimo 2s, máximo 8s
-  const delay = Math.min(Math.max(Math.floor(chars / 30) * 1000, 2000), 8000);
+  const delay = Math.min(Math.max(Math.floor(chars / 30) * 1000, 1500), 6000);
   return delay;
 }
 
-/**
- * Envia mensagem de texto pra um número.
- * Usa o parâmetro delayMessage da Z-API pra mostrar o indicador de digitação
- * antes de enviar — sem precisar de endpoint de presença separado.
- *
- * @param {string} phone - Número no formato 5531999999999
- * @param {string} message - Texto da mensagem
- * @returns {Promise<Object>} resposta da Z-API
- */
+async function simularDigitando(phone, duracaoMs) {
+  try {
+    await zapi.post('/send-chat-state', {
+      phone,
+      chatState: 'TYPING',
+    });
+    await new Promise((resolve) => setTimeout(resolve, duracaoMs));
+    await zapi.post('/send-chat-state', {
+      phone,
+      chatState: 'AVAILABLE',
+    });
+  } catch (error) {
+    // Falha silenciosa — não interrompe o envio da mensagem
+    console.warn(`⚠️ Erro ao simular digitando pra ${phone}:`, error.message);
+  }
+}
+
 export async function enviarTexto(phone, message) {
-  const delayMessage = calcularDelayDigitacao(message);
+  const delay = calcularDelayDigitacao(message);
 
   try {
+    await simularDigitando(phone, delay);
+
     const response = await zapi.post('/send-text', {
       phone,
       message,
-      delayMessage, // Z-API mostra "digitando..." pelo tempo do delay antes de enviar
     });
 
-    console.log(`📤 Mensagem enviada pra ${phone} (delay: ${delayMessage}ms)`);
+    console.log(`📤 Mensagem enviada pra ${phone} (digitando: ${delay}ms)`);
     return response.data;
   } catch (error) {
     console.error(`❌ Erro ao enviar texto pra ${phone}:`, error.response?.data || error.message);
@@ -52,11 +52,10 @@ export async function enviarTexto(phone, message) {
   }
 }
 
-/**
- * Envia imagem pra um número (a partir de URL pública).
- */
 export async function enviarImagem(phone, imageUrl, caption = '') {
   try {
+    await simularDigitando(phone, 1500);
+
     const response = await zapi.post('/send-image', {
       phone,
       image: imageUrl,
@@ -71,10 +70,6 @@ export async function enviarImagem(phone, imageUrl, caption = '') {
   }
 }
 
-/**
- * Envia mensagem pra um grupo do WhatsApp.
- * Sem delay — notificações internas não precisam parecer humanas.
- */
 export async function enviarMensagemGrupo(groupId, message) {
   try {
     const response = await zapi.post('/send-text', {
@@ -90,9 +85,6 @@ export async function enviarMensagemGrupo(groupId, message) {
   }
 }
 
-/**
- * Verifica se a instância da Z-API está conectada com o WhatsApp.
- */
 export async function verificarConexao() {
   try {
     const response = await zapi.get('/status');
@@ -106,16 +98,10 @@ export async function verificarConexao() {
   }
 }
 
-/**
- * Detecta se uma mensagem recebida via webhook foi enviada pelo próprio número da Mila.
- */
 export function ehMensagemDeHumano(webhook) {
   return webhook?.fromMe === true && webhook?.isStatusReply !== true;
 }
 
-/**
- * Extrai dados úteis de um webhook de mensagem recebida.
- */
 export function parsearWebhook(webhook) {
   if (!webhook || typeof webhook !== 'object') return null;
 
