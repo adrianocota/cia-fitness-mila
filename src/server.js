@@ -8,6 +8,17 @@ import { rodarFollowups } from './handlers/followupHandler.js';
 import { verificarConexao } from './services/zapi.js';
 import { limparCache } from './lib/promptBuilder.js';
 import { rodarCRM, rodarTransmissao } from './crm/crmHandler.js';
+import {
+  gatilho_9diasSemPresenca,
+  gatilho_18diasSemPresenca,
+  gatilho_aniversario,
+  gatilho_1diaAposMatricula,
+  gatilho_30diasAposMatricula,
+  gatilho_16diasAntesVencimento,
+  gatilho_5diasAposVencimento,
+  gatilho_7diasAposOportunidade,
+  gatilho_cobrancaRecusada,
+} from './crm/evoService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,7 +84,6 @@ app.post('/admin/cache/clear', (req, res) => {
   }
 });
 
-// Dashboard
 app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard_mila_v2.html'));
 });
@@ -82,7 +92,6 @@ app.get('/dashboard', (req, res) => {
 // ROTAS CRM
 // ================================================
 
-// Disparo manual dos gatilhos (para teste)
 app.post('/crm/rodar', async (req, res) => {
   const token = req.headers['x-secret-token'];
   if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
@@ -94,7 +103,6 @@ app.post('/crm/rodar', async (req, res) => {
   }
 });
 
-// Transmissão manual via dashboard
 app.post('/crm/transmissao', async (req, res) => {
   const token = req.headers['x-secret-token'];
   if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
@@ -108,20 +116,65 @@ app.post('/crm/transmissao', async (req, res) => {
   }
 });
 
+// Simulação — não envia mensagens, só mostra quem seria atingido
+app.get('/crm/simular', async (req, res) => {
+  const token = req.headers['x-secret-token'] || req.query.token;
+  if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
+
+  try {
+    const [g1, g2, g3, g4, g5, g6, g7, g8, g9] = await Promise.allSettled([
+      gatilho_9diasSemPresenca(),
+      gatilho_18diasSemPresenca(),
+      gatilho_aniversario(),
+      gatilho_1diaAposMatricula(),
+      gatilho_30diasAposMatricula(),
+      gatilho_16diasAntesVencimento(),
+      gatilho_5diasAposVencimento(),
+      gatilho_7diasAposOportunidade(),
+      gatilho_cobrancaRecusada(),
+    ]);
+
+    const resumo = (label, result) => ({
+      gatilho: label,
+      total: result.status === 'fulfilled' ? result.value.length : 0,
+      erro: result.status === 'rejected' ? result.reason?.message : null,
+      leads: result.status === 'fulfilled'
+        ? result.value.map(l => ({ nome: l.nome, telefone: l.telefone ? l.telefone.slice(0, 8) + '****' : null }))
+        : [],
+    });
+
+    res.json({
+      status: 'simulacao',
+      aviso: 'Nenhuma mensagem foi enviada',
+      data: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      gatilhos: [
+        resumo('9 dias sem presença',       g1),
+        resumo('18 dias sem presença',      g2),
+        resumo('Aniversário',               g3),
+        resumo('1 dia após matrícula',      g4),
+        resumo('30 dias após matrícula',    g5),
+        resumo('16 dias antes vencimento',  g6),
+        resumo('5 dias após vencimento',    g7),
+        resumo('7 dias após oportunidade',  g8),
+        resumo('Cobrança recusada',         g9),
+      ],
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ================================================
 // CRONS
 // ================================================
 
 if (config.server.env === 'production') {
-
-  // Follow-up: todo hora
   cron.schedule('0 * * * *', async () => {
     console.log('⏰ Cron follow-up disparado');
     try { await rodarFollowups(); }
     catch (error) { console.error('❌ Erro no follow-up:', error.message); }
   }, { timezone: 'America/Sao_Paulo' });
 
-  // CRM: todo dia às 8h
   cron.schedule('0 8 * * *', async () => {
     console.log('📋 Cron CRM disparado');
     try { await rodarCRM(); }
@@ -130,7 +183,6 @@ if (config.server.env === 'production') {
 
   console.log('✅ Cron follow-up agendado (a cada hora)');
   console.log('✅ Cron CRM agendado (todo dia às 8h)');
-
 } else {
   console.log('🧪 Modo development: crons desabilitados');
 }
@@ -151,6 +203,7 @@ app.listen(PORT, () => {
   console.log(`🔌 Webhook: POST /webhook`);
   console.log(`📊 Dashboard: GET /dashboard`);
   console.log(`📋 CRM: POST /crm/rodar`);
+  console.log(`🔍 Simulação: GET /crm/simular`);
   console.log(`📢 Transmissão: POST /crm/transmissao`);
   console.log(`🧹 Cache: POST /admin/cache/clear`);
   console.log('═══════════════════════════════════════');
