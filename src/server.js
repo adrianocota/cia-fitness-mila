@@ -8,17 +8,7 @@ import { rodarFollowups } from './handlers/followupHandler.js';
 import { verificarConexao } from './services/zapi.js';
 import { limparCache } from './lib/promptBuilder.js';
 import { rodarCRM, rodarTransmissao } from './crm/crmHandler.js';
-import {
-  gatilho_9diasSemPresenca,
-  gatilho_18diasSemPresenca,
-  gatilho_aniversario,
-  gatilho_1diaAposMatricula,
-  gatilho_30diasAposMatricula,
-  gatilho_16diasAntesVencimento,
-  gatilho_5diasAposVencimento,
-  gatilho_7diasAposOportunidade,
-  gatilho_cobrancaRecusada,
-} from './crm/evoService.js';
+import { buscarDadosCRM, gatilho_9diasSemPresenca, gatilho_18diasSemPresenca, gatilho_aniversario, gatilho_1diaAposMatricula, gatilho_30diasAposMatricula, gatilho_16diasAntesVencimento, gatilho_5diasAposVencimento, gatilho_7diasAposOportunidade, gatilho_cobrancaRecusada } from './crm/evoService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,28 +16,14 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-// ================================================
-// ROTAS
-// ================================================
-
 app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'Cia Fitness Mila',
-    mode: config.mode,
-    timestamp: new Date().toISOString(),
-  });
+  res.json({ status: 'ok', service: 'Cia Fitness Mila', mode: config.mode, timestamp: new Date().toISOString() });
 });
 
 app.get('/health', async (req, res) => {
   try {
     const zapiConectado = await verificarConexao();
-    res.json({
-      status: 'ok',
-      zapi: zapiConectado ? 'conectado' : 'desconectado',
-      mode: config.mode,
-      timestamp: new Date().toISOString(),
-    });
+    res.json({ status: 'ok', zapi: zapiConectado ? 'conectado' : 'desconectado', mode: config.mode, timestamp: new Date().toISOString() });
   } catch (error) {
     res.status(500).json({ status: 'erro', message: error.message });
   }
@@ -55,52 +31,33 @@ app.get('/health', async (req, res) => {
 
 app.post('/webhook', async (req, res) => {
   res.status(200).json({ received: true });
-  try {
-    await processarWebhook(req.body);
-  } catch (error) {
-    console.error('❌ Erro no webhook:', error.message);
-  }
+  try { await processarWebhook(req.body); }
+  catch (error) { console.error('❌ Erro no webhook:', error.message); }
 });
 
 app.post('/trigger-followup', async (req, res) => {
   const token = req.headers['x-secret-token'];
   if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
-  try {
-    await rodarFollowups();
-    res.json({ status: 'follow-up executado' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { await rodarFollowups(); res.json({ status: 'follow-up executado' }); }
+  catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.post('/admin/cache/clear', (req, res) => {
   const token = req.headers['x-secret-token'];
   if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
-  try {
-    limparCache();
-    res.json({ status: 'ok', message: 'Cache limpo com sucesso.', timestamp: new Date().toISOString() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { limparCache(); res.json({ status: 'ok', message: 'Cache limpo.', timestamp: new Date().toISOString() }); }
+  catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard_mila_v2.html'));
 });
 
-// ================================================
-// ROTAS CRM
-// ================================================
-
 app.post('/crm/rodar', async (req, res) => {
   const token = req.headers['x-secret-token'];
   if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
-  try {
-    const resultado = await rodarCRM();
-    res.json({ status: 'ok', resultado });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { const resultado = await rodarCRM(); res.json({ status: 'ok', resultado }); }
+  catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.post('/crm/transmissao', async (req, res) => {
@@ -108,106 +65,69 @@ app.post('/crm/transmissao', async (req, res) => {
   if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
   const { lista, texto, imagemUrl } = req.body;
   if (!lista || !texto) return res.status(400).json({ error: 'lista e texto são obrigatórios' });
-  try {
-    const resultado = await rodarTransmissao({ lista, texto, imagemUrl });
-    res.json({ status: 'ok', resultado });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { const resultado = await rodarTransmissao({ lista, texto, imagemUrl }); res.json({ status: 'ok', resultado }); }
+  catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Simulação — não envia mensagens, só mostra quem seria atingido
+// Simulação — busca dados uma vez, processa tudo localmente, sem disparar mensagens
 app.get('/crm/simular', async (req, res) => {
   const token = req.headers['x-secret-token'] || req.query.token;
   if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
-
   try {
-    const [g1, g2, g3, g4, g5, g6, g7, g8, g9] = await Promise.allSettled([
-      gatilho_9diasSemPresenca(),
-      gatilho_18diasSemPresenca(),
-      gatilho_aniversario(),
-      gatilho_1diaAposMatricula(),
-      gatilho_30diasAposMatricula(),
-      gatilho_16diasAntesVencimento(),
-      gatilho_5diasAposVencimento(),
-      gatilho_7diasAposOportunidade(),
-      gatilho_cobrancaRecusada(),
-    ]);
+    console.log('🔍 Simulação CRM iniciada...');
+    const { membros, prospects, recebiveis } = await buscarDadosCRM();
 
-    const resumo = (label, result) => ({
-      gatilho: label,
-      total: result.status === 'fulfilled' ? result.value.length : 0,
-      erro: result.status === 'rejected' ? result.reason?.message : null,
-      leads: result.status === 'fulfilled'
-        ? result.value.map(l => ({ nome: l.nome, telefone: l.telefone ? l.telefone.slice(0, 8) + '****' : null }))
-        : [],
-    });
+    const gatilhos = [
+      { label: '9 dias sem presença',      lista: gatilho_9diasSemPresenca(membros) },
+      { label: '18 dias sem presença',     lista: gatilho_18diasSemPresenca(membros) },
+      { label: 'Aniversário',              lista: gatilho_aniversario(membros) },
+      { label: '1 dia após matrícula',     lista: gatilho_1diaAposMatricula(membros) },
+      { label: '30 dias após matrícula',   lista: gatilho_30diasAposMatricula(membros) },
+      { label: '16 dias antes vencimento', lista: gatilho_16diasAntesVencimento(membros) },
+      { label: '5 dias após vencimento',   lista: gatilho_5diasAposVencimento(membros) },
+      { label: '7 dias após oportunidade', lista: gatilho_7diasAposOportunidade(prospects) },
+      { label: 'Cobrança recusada',        lista: gatilho_cobrancaRecusada(recebiveis, membros) },
+    ];
 
     res.json({
       status: 'simulacao',
       aviso: 'Nenhuma mensagem foi enviada',
       data: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-      gatilhos: [
-        resumo('9 dias sem presença',       g1),
-        resumo('18 dias sem presença',      g2),
-        resumo('Aniversário',               g3),
-        resumo('1 dia após matrícula',      g4),
-        resumo('30 dias após matrícula',    g5),
-        resumo('16 dias antes vencimento',  g6),
-        resumo('5 dias após vencimento',    g7),
-        resumo('7 dias após oportunidade',  g8),
-        resumo('Cobrança recusada',         g9),
-      ],
+      total_membros: membros.length,
+      total_prospects: prospects.length,
+      gatilhos: gatilhos.map(g => ({
+        gatilho: g.label,
+        total: g.lista.length,
+        leads: g.lista.map(l => ({ nome: l.nome, telefone: l.telefone ? l.telefone.slice(0, 6) + '****' : null })),
+      })),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ================================================
-// CRONS
-// ================================================
-
 if (config.server.env === 'production') {
   cron.schedule('0 * * * *', async () => {
-    console.log('⏰ Cron follow-up disparado');
-    try { await rodarFollowups(); }
-    catch (error) { console.error('❌ Erro no follow-up:', error.message); }
+    try { await rodarFollowups(); } catch (e) { console.error('❌ Follow-up:', e.message); }
   }, { timezone: 'America/Sao_Paulo' });
 
   cron.schedule('0 8 * * *', async () => {
-    console.log('📋 Cron CRM disparado');
-    try { await rodarCRM(); }
-    catch (error) { console.error('❌ Erro no CRM:', error.message); }
+    try { await rodarCRM(); } catch (e) { console.error('❌ CRM:', e.message); }
   }, { timezone: 'America/Sao_Paulo' });
 
-  console.log('✅ Cron follow-up agendado (a cada hora)');
-  console.log('✅ Cron CRM agendado (todo dia às 8h)');
+  console.log('✅ Crons agendados: follow-up (hora) + CRM (8h)');
 } else {
-  console.log('🧪 Modo development: crons desabilitados');
+  console.log('🧪 Development: crons desabilitados');
 }
-
-// ================================================
-// INICIA SERVIDOR
-// ================================================
 
 const PORT = config.server.port;
 app.listen(PORT, () => {
   console.log('═══════════════════════════════════════');
   console.log('🚀 Cia Fitness Mila — Backend iniciado');
-  console.log('═══════════════════════════════════════');
-  console.log(`📍 Porta: ${PORT}`);
-  console.log(`🌍 Ambiente: ${config.server.env}`);
-  console.log(`🎯 Modo Mila: ${config.mode.toUpperCase()}`);
-  console.log(`📞 Número Mila: ${config.mila.phoneNumber}`);
-  console.log(`🔌 Webhook: POST /webhook`);
-  console.log(`📊 Dashboard: GET /dashboard`);
-  console.log(`📋 CRM: POST /crm/rodar`);
-  console.log(`🔍 Simulação: GET /crm/simular`);
-  console.log(`📢 Transmissão: POST /crm/transmissao`);
-  console.log(`🧹 Cache: POST /admin/cache/clear`);
+  console.log(`📍 Porta: ${PORT} | 🌍 ${config.server.env} | 🎯 ${config.mode.toUpperCase()}`);
+  console.log(`🔌 /webhook | 📊 /dashboard | 📋 /crm/rodar | 🔍 /crm/simular`);
   console.log('═══════════════════════════════════════');
 });
 
-process.on('uncaughtException', (error) => { console.error('💥 Uncaught:', error); });
-process.on('unhandledRejection', (reason) => { console.error('💥 Rejection:', reason); });
+process.on('uncaughtException', (e) => console.error('💥', e));
+process.on('unhandledRejection', (e) => console.error('💥', e));
