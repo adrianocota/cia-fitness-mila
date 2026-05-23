@@ -7,6 +7,7 @@ import { processarWebhook } from './handlers/webhookHandler.js';
 import { rodarFollowups } from './handlers/followupHandler.js';
 import { verificarConexao } from './services/zapi.js';
 import { limparCache } from './lib/promptBuilder.js';
+import { rodarCRM, rodarTransmissao } from './crm/crmHandler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,10 +38,7 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    res.status(500).json({
-      status: 'erro',
-      message: error.message,
-    });
+    res.status(500).json({ status: 'erro', message: error.message });
   }
 });
 
@@ -49,16 +47,13 @@ app.post('/webhook', async (req, res) => {
   try {
     await processarWebhook(req.body);
   } catch (error) {
-    console.error('❌ Erro no processamento do webhook:', error.message);
-    console.error(error.stack);
+    console.error('❌ Erro no webhook:', error.message);
   }
 });
 
 app.post('/trigger-followup', async (req, res) => {
   const token = req.headers['x-secret-token'];
-  if (token !== config.zapi.token) {
-    return res.status(403).json({ error: 'forbidden' });
-  }
+  if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
   try {
     await rodarFollowups();
     res.json({ status: 'follow-up executado' });
@@ -69,43 +64,75 @@ app.post('/trigger-followup', async (req, res) => {
 
 app.post('/admin/cache/clear', (req, res) => {
   const token = req.headers['x-secret-token'];
-  if (token !== config.zapi.token) {
-    return res.status(403).json({ error: 'forbidden' });
-  }
+  if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
   try {
     limparCache();
-    res.json({
-      status: 'ok',
-      message: 'Cache limpo com sucesso. Próxima mensagem carrega a base atualizada.',
-      timestamp: new Date().toISOString(),
-    });
+    res.json({ status: 'ok', message: 'Cache limpo com sucesso.', timestamp: new Date().toISOString() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
+// Dashboard
 app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard_mila_v2.html'));
 });
 
 // ================================================
-// CRON DE FOLLOW-UP
+// ROTAS CRM
+// ================================================
+
+// Disparo manual dos gatilhos (para teste)
+app.post('/crm/rodar', async (req, res) => {
+  const token = req.headers['x-secret-token'];
+  if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const resultado = await rodarCRM();
+    res.json({ status: 'ok', resultado });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Transmissão manual via dashboard
+app.post('/crm/transmissao', async (req, res) => {
+  const token = req.headers['x-secret-token'];
+  if (token !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
+  const { lista, texto, imagemUrl } = req.body;
+  if (!lista || !texto) return res.status(400).json({ error: 'lista e texto são obrigatórios' });
+  try {
+    const resultado = await rodarTransmissao({ lista, texto, imagemUrl });
+    res.json({ status: 'ok', resultado });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================================================
+// CRONS
 // ================================================
 
 if (config.server.env === 'production') {
+
+  // Follow-up: todo hora
   cron.schedule('0 * * * *', async () => {
-    console.log('⏰ Cron de follow-up disparado');
-    try {
-      await rodarFollowups();
-    } catch (error) {
-      console.error('❌ Erro no cron de follow-up:', error.message);
-    }
-  }, {
-    timezone: 'America/Sao_Paulo',
-  });
-  console.log('✅ Cron de follow-up agendado (a cada hora)');
+    console.log('⏰ Cron follow-up disparado');
+    try { await rodarFollowups(); }
+    catch (error) { console.error('❌ Erro no follow-up:', error.message); }
+  }, { timezone: 'America/Sao_Paulo' });
+
+  // CRM: todo dia às 8h
+  cron.schedule('0 8 * * *', async () => {
+    console.log('📋 Cron CRM disparado');
+    try { await rodarCRM(); }
+    catch (error) { console.error('❌ Erro no CRM:', error.message); }
+  }, { timezone: 'America/Sao_Paulo' });
+
+  console.log('✅ Cron follow-up agendado (a cada hora)');
+  console.log('✅ Cron CRM agendado (todo dia às 8h)');
+
 } else {
-  console.log('🧪 Modo development: cron de follow-up desabilitado');
+  console.log('🧪 Modo development: crons desabilitados');
 }
 
 // ================================================
@@ -123,18 +150,11 @@ app.listen(PORT, () => {
   console.log(`📞 Número Mila: ${config.mila.phoneNumber}`);
   console.log(`🔌 Webhook: POST /webhook`);
   console.log(`📊 Dashboard: GET /dashboard`);
+  console.log(`📋 CRM: POST /crm/rodar`);
+  console.log(`📢 Transmissão: POST /crm/transmissao`);
   console.log(`🧹 Cache: POST /admin/cache/clear`);
   console.log('═══════════════════════════════════════');
 });
 
-// ================================================
-// TRATAMENTO DE ERROS NÃO CAPTURADOS
-// ================================================
-
-process.on('uncaughtException', (error) => {
-  console.error('💥 Uncaught Exception:', error);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('💥 Unhandled Rejection:', reason);
-});
+process.on('uncaughtException', (error) => { console.error('💥 Uncaught:', error); });
+process.on('unhandledRejection', (reason) => { console.error('💥 Rejection:', reason); });
