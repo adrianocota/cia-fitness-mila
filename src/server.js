@@ -65,7 +65,7 @@ app.post('/evo-crm', async (req, res) => {
   res.status(200).json({ received: true });
   try {
     console.log('📋 EVO CRM recebido:', JSON.stringify(req.body).slice(0, 200));
-    await processarEvoCRM(req.body);
+    await processarEvoCRM(req.body, req.headers["x-secret-token"]);
   } catch (e) {
     console.error('❌ EVO CRM:', e.message);
   }
