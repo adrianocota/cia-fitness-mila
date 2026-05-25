@@ -125,6 +125,10 @@ function montarTexto(chave, nome) {
 }
 
 export async function processarEvoCRM(body, token) {
+  // LOG TEMPORÁRIO — remover após validar payload do EVO
+  console.log('🔍 EVO CRM payload recebido:', JSON.stringify(body, null, 2));
+  console.log('🔍 EVO CRM token recebido:', token);
+
   // Valida token de segurança
   if (token !== process.env.EVO_SECRET_TOKEN) {
     console.log('⚠️ EVO CRM: token inválido');
