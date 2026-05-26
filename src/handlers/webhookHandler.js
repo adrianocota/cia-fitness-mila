@@ -124,7 +124,7 @@ function todosOsPlanosCitados(historico) {
   return mensal && anual && economica && clube;
 }
 
-const TERMOS_AULAS = /(aula|aulas|coletiv|fast training|fast.training|modalidade|modalidades|jump|zumba|combat|funcional|cardiomix|cardio mix)/i;
+const TERMOS_AULAS = /(aula|aulas|coletiv|fast training|fast.training|modalidade|modalidades|jump|zumba|combat|funcional|cardiomix|cardio mix|quadro.{0,20}hor|grade.{0,20}hor|ver.{0,15}quadro|manda.{0,15}quadro|quero.{0,15}quadro|cad[eê].{0,15}quadro)/i;
 const INDICADORES_GRADE = /(horário|hora|grade|quadro|quando|que dia|qual dia|dias|tabela|cronograma|tem.{0,10}aula|tem.{0,10}coletiv|que aulas|quais aulas|quais.{0,15}modalidade|tem.{0,15}modalidade)/i;
 
 function detectarPerguntaAulas(texto) {
