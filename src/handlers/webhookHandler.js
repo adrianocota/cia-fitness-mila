@@ -92,10 +92,14 @@ function detectarPerguntaFluxo(texto) {
 
 const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
 const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|to interessad|estou interessad|sobre|me explica|como funciona|diferen[çc]|diferente|entre os|entre eles|compara|comparar|qual|quanto|o que muda|o que inclui)/i;
+// Termos que indicam pedido de grade/quadro de aulas — bloqueiam detecção de planos
+const TERMOS_GRADE_AULAS = /(quadro.{0,20}hor|grade.{0,20}hor|hor[aá]rio.{0,20}aula|hor[aá]rio.{0,20}coletiv|quadro.{0,20}aula|ver.{0,20}quadro|manda.{0,20}quadro|envia.{0,20}quadro|quarto.{0,20}hor)/i;
 
 function detectarPerguntaPlanos(texto) {
   if (!texto) return false;
   if (TERMOS_AVALIANDO.test(texto)) return false;
+  // Se o lead está pedindo o quadro/grade de aulas, não é pergunta de planos
+  if (TERMOS_GRADE_AULAS.test(texto)) return false;
   return TERMOS_PLANOS.test(texto) && INDICADORES_PEDIDO.test(texto);
 }
 
