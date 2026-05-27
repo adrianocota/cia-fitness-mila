@@ -1,58 +1,68 @@
-OFERTA VIGENTE — CIA DO FITNESS
-Última atualização: 17/05/2026
-Editado por: Adriano
-Validade da campanha: campanha contínua
+# OFERTA VIGENTE — CIA DO FITNESS
+
+**Última atualização:** 17/05/2026
+**Editado por:** Adriano
+**Validade da campanha:** campanha contínua
+
 ---
-INSTRUÇÕES DE USO
+
+## INSTRUÇÕES DE USO
+
 Este documento é lido pela Mila junto com a base de conhecimento em toda conversa. Aqui está a campanha vigente que está rodando no tráfego pago. Quando trocar a campanha, basta editar este arquivo no GitHub e fazer commit.
+
+**REGRA CRÍTICA:** As informações abaixo são disponibilizadas para a Mila, mas ela NUNCA usa esses dados proativamente. Ela só menciona a campanha se o lead disser primeiro: "vi um anúncio", "vi uma promoção", "vi um post", "vi a propaganda", "qual a oferta", "qual o anúncio". Sem esse sinal explícito do lead, a campanha não existe na conversa.
+
 ---
-CAMPANHA ATUAL
-Nome da campanha
-Assinatura Econômica Anual
-Plano em promoção
-Assinatura Econômica Anual
-Valor destacado no anúncio
-R$ 95,00/mês
-Ângulo principal de comunicação
+
+## CAMPANHA ATUAL
+
+**Nome da campanha:** Assinatura Econômica Anual
+
+**Plano em promoção:** Assinatura Econômica Anual
+
+**Valor destacado no anúncio:** R$ 95,00/mês
+
+**Ângulo principal de comunicação:**
 "Treine na melhor academia de Monlevade pagando menos. Plano anual exclusivo pra quem pode treinar de segunda a sexta, das 11h às 15h."
-Benefícios principais a destacar
-Mensalidade mais baixa da Cia (R$ 95/mês)
-Taxa de adesão de R$ 69 (matrícula inclusa)
-Trancamento de até 30 dias no ano
-Horário 11h às 15h é a faixa mais vazia da academia (mais espaço, menos fila de aparelho)
-Pode treinar em qualquer dia da semana (seg a sex)
-Restrições importantes que o lead PRECISA saber
-Horário restrito: só segunda a sexta, das 11h às 15h
-Não inclui aulas coletivas (nesse horário não há aulas)
-Avaliação física (R$ 100) e consulta nutricional (R$ 150) pagas à parte. ATENÇÃO: isso é restrição exclusiva da Assinatura Econômica Anual. Na Assinatura Anual a consulta nutricional está INCLUSA na adesão gratuita.
-Fidelidade de 12 meses (contrato anual)
-Formas de pagamento
-Recorrência mensal no cartão: R$ 95,00/mês
-Parcelado no cartão de crédito à vista: 12 × R$ 95,00
-À vista no Pix ou dinheiro: R$ 1.117,20 (2% de desconto sobre o total anual de R$ 1.140,00). Só mencione se o lead perguntar.
-Bônus ou condições especiais da campanha
-Nenhum bônus extra além do já incluído no plano padrão.
-Validade
-Campanha contínua (vendida o ano todo).
+
+**Benefícios principais a destacar (somente se lead mencionar campanha):**
+- Mensalidade mais baixa da Cia (R$ 95/mês)
+- Taxa de adesão de R$ 69 (matrícula inclusa)
+- Trancamento de até 30 dias no ano
+- Horário 11h às 15h é a faixa mais vazia da academia
+- Pode treinar qualquer dia da semana (seg a sex)
+
+**Restrições importantes que o lead PRECISA saber:**
+- Horário restrito: só segunda a sexta, das 11h às 15h
+- Não inclui aulas coletivas
+- Avaliação física (R$ 100) e consulta nutricional (R$ 150) pagas à parte
+- Fidelidade de 12 meses
+
+**Formas de pagamento:**
+- Recorrência mensal no cartão: R$ 95,00/mês
+- À vista no Pix ou dinheiro: R$ 1.117,20 (2% de desconto). Só mencione se o lead perguntar.
+
+**Bônus ou condições especiais:** Nenhum bônus extra.
+
+**Validade:** Campanha contínua (vendida o ano todo).
+
 ---
-CONTEXTO PRA MILA
-Como abordar o lead dessa campanha
-> "Olá, [nome]! Tudo bem? Aqui é a Mila, da Cia do Fitness. Vi que você se interessou pela nossa Assinatura Econômica Anual. Posso te ajudar com mais informações?"
-Perfil esperado do lead
-Pessoas que têm flexibilidade de horário no meio do dia (autônomos, aposentados, mães com filhos na escola, trabalhadores em escala, estudantes da tarde). Buscam preço mais acessível. Estão dispostos a se comprometer com plano anual. Querem foco em musculação.
-Quando direcionar pra Assinatura Anual
-Se durante a conversa ficar claro que o lead:
-Trabalha em horário comercial fixo e não pode treinar 11h-15h
-Tem grande interesse em aulas coletivas
-Pretende treinar várias vezes por semana em horários variados
-Apresente a Assinatura Anual (R$ 119/mês) como alternativa mais adequada, sem forçar.
-Argumento estratégico exclusivo
+
+## CONTEXTO PRA MILA — SÓ USAR SE LEAD MENCIONAR CAMPANHA
+
+**Quando direcionar pra Assinatura Anual:**
+Se durante a conversa ficar claro que o lead trabalha em horário comercial fixo, tem grande interesse em aulas coletivas, ou pretende treinar em horários variados, apresente a Assinatura Anual (R$ 119/mês) como alternativa mais adequada, sem forçar.
+
+**Argumento estratégico exclusivo (só se lead mencionar campanha):**
 "O horário desse plano (11h-15h) é justamente a faixa mais vazia da academia. Quem treina nesse horário pega a academia tranquila, com mais espaço, sem fila de aparelho. Não é só plano mais barato, acaba sendo o mais confortável também."
+
 ---
-HISTÓRICO DE CAMPANHAS ANTERIORES
-Setembro 2025 — Aniversário da Cia
-20 anos de história. Geramos ~400 conversas pelo tráfego pago. Influenciadora Débora Fernandes.
-Maio 2025 — Maio é Delas
-Campanha focada em mulheres.
+
+## HISTÓRICO DE CAMPANHAS ANTERIORES
+
+- **Setembro 2025 — Aniversário da Cia:** 20 anos de história. ~400 conversas. Influenciadora Débora Fernandes.
+- **Maio 2025 — Maio é Delas:** Campanha focada em mulheres.
+
 ---
-FIM DO DOCUMENTO
+
+**FIM DO DOCUMENTO**
