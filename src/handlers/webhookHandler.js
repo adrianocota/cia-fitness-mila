@@ -174,10 +174,19 @@ function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
     .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
     .slice(-1)[0];
   if (!saidaMila?.conteudo) return false;
-  return (
-    saidaMila.conteudo === TEXTO_REENVIO_QUADRO ||
-    saidaMila.conteudo.endsWith(SUFIXO_OFERTA_QUADRO)
-  );
+  const c = saidaMila.conteudo;
+  // Detecta qualquer variação de oferta do quadro de horários
+  const padroes = [
+    'Quer que eu envie o quadro de horários?',
+    'posso te enviar o quadro de horários',
+    'envio o quadro de horários',
+    'quer o quadro de horários',
+    'mando o quadro de horários',
+    'te mando o quadro',
+    'quadro de horários!',
+    TEXTO_REENVIO_QUADRO,
+  ];
+  return padroes.some((p) => c.includes(p));
 }
 
 function ultimaMensagemMilaFoiOfertaDeFluxo(historico) {
@@ -345,8 +354,19 @@ export async function processarWebhook(webhookBody) {
     mensagemComContexto = `[CONTEXTO INTERNO: Lead ficou ${dias} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`;
   }
 
+  // Guard: perguntas informativas sobre pagamento não são gatilho de escalada
+  const PERGUNTAS_INFORMATIVAS = [
+    /pix.{0,30}(anual|inteiro|vista)/i,
+    /dinheiro.{0,30}(anual|inteiro|vista)/i,
+    /preciso pagar.{0,30}vista/i,
+    /pagar.{0,30}(anual|inteiro).{0,30}vista/i,
+    /quanto.{0,20}(pix|dinheiro|vista)/i,
+    /desconto.{0,20}(pix|dinheiro|vista)/i,
+  ];
+  const ePerguntaInformativa = PERGUNTAS_INFORMATIVAS.some((r) => r.test(conteudo));
+
   const { escalar, motivo } = await detectarEscalacao({ historico: historicoFormatado, mensagemNova: conteudo });
-  if (escalar) {
+  if (escalar && !ePerguntaInformativa) {
     await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado' });
     return;
   }
