@@ -139,6 +139,8 @@ const CONFIRMACOES_REENVIO = [
   /^claro$/i, /^quero$/i, /^quero sim$/i, /^tá$/i, /^ta$/i,
   /^ok$/i, /^isso$/i, /^manda novamente$/i, /^manda de novo$/i,
   /^envia$/i, /^envia sim$/i, /^sim por favor$/i, /^sim, por favor$/i,
+  /^quero sim$/i, /^quero$/i, /^manda sim$/i, /^pode mandar$/i,
+  /^vai$/i, /^bora$/i, /^isso aí$/i,
 ];
 
 function detectarConfirmacaoReenvio(texto) {
