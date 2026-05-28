@@ -95,14 +95,18 @@ NÃO É GATILHO — NUNCA transfira por esses motivos:
 - Lead mencionou objetivo (emagrecer, ganhar massa) sem pedir agendamento concreto
 - Lead perguntou sobre professores, formação, estagiários, equipamentos, vestiário, estacionamento
 - Lead está no início da conversa (primeiras 1-3 mensagens)
-- Lead mencionou condição de saúde (hérnia, lesão, diabetes, hipertensão) — a atendente sabe responder
+- Lead mencionou condição de saúde (hérnia, lesão, diabetes, hipertensão, miocardite, gravidez) — a atendente sabe responder
 - Lead é idoso e mencionou a idade — a atendente sabe acolher
 - Lead tem vergonha, medo de começar, ou baixa autoestima — a atendente deve acolher
 - Lead mencionou evento de vida difícil (luto, perda de familiar, perda de pet, separação) — a atendente deve acolher
 - Lead perguntou sobre período de teste, semana experimental, dias de graça — a atendente oferece dayuse e aula experimental
 - Lead perguntou sobre agendamento de avaliação sem confirmar decisão de matrícula
-- Lead perguntou se pode pagar no dinheiro ou Pix (primeira vez) — a atendente informa que mensal é só no cartão
+- Lead pergunta se pode pagar no dinheiro ou Pix (primeira vez) — a atendente informa que mensal é só no cartão
 - Lead perguntou sobre pagamento à vista, Pix ou dinheiro no plano anual — a atendente responde com o valor e desconto
+- Lead perguntou sobre Gympass, Totalpass, o que está incluso, valor, como funciona — a atendente sabe responder
+- Lead perguntou sobre cartão de outra pessoa — a atendente informa que pode com CPF do titular
+- Lead perguntou sobre trancamento do plano — a atendente sabe responder
+- Lead perguntou o que é TP2, Gympass Silver, ou qualquer detalhe dos convênios — a atendente sabe responder
 
 Últimas mensagens da conversa:
 ${historico.slice(-10).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('\n')}
