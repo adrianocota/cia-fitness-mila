@@ -36,7 +36,7 @@ const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande
 // ─── DEBOUNCE — fila de mensagens por número ─────────────────────────────────
 // Quando o lead envia mensagens em sequência rápida (ex: "e o gympass" + "como funciona?"),
 // acumulamos tudo e processamos junto após DEBOUNCE_MS de silêncio.
-const DEBOUNCE_MS = 3000;
+const DEBOUNCE_MS = 4500;
 const filaDebounce = new Map(); // phone -> { conteudos: [], timer, webhookBody }
 
 function agendarProcessamento(phone, conteudo, webhookBody) {
