@@ -101,9 +101,11 @@ NÃO É GATILHO — NUNCA transfira por esses motivos:
 - Lead mencionou evento de vida difícil (luto, perda de familiar, perda de pet, separação) — a atendente deve acolher
 - Lead perguntou sobre período de teste, semana experimental, dias de graça — a atendente oferece dayuse e aula experimental
 - Lead perguntou sobre agendamento de avaliação sem confirmar decisão de matrícula
+- Lead perguntou se pode pagar no dinheiro ou Pix (primeira vez) — a atendente informa que mensal é só no cartão
+- Lead perguntou sobre pagamento à vista, Pix ou dinheiro no plano anual — a atendente responde com o valor e desconto
 
 Últimas mensagens da conversa:
-${historico.slice(-6).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('\n')}
+${historico.slice(-10).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('\n')}
 
 Última mensagem do lead: "${mensagemNova}"
 
