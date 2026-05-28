@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-
 // Carrega variáveis de ambiente do arquivo .env (apenas em desenvolvimento local)
 dotenv.config();
 
@@ -18,7 +17,6 @@ const requiredEnvVars = [
 ];
 
 const missingVars = requiredEnvVars.filter((v) => !process.env[v]);
-
 if (missingVars.length > 0) {
   console.error('❌ Variáveis de ambiente ausentes:');
   missingVars.forEach((v) => console.error(`   - ${v}`));
@@ -34,17 +32,15 @@ export const config = {
   // OpenAI
   openai: {
     apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1-mini',
     maxTokens: 500,
     temperature: 0.5,
   },
-
   // Supabase
   supabase: {
     url: process.env.SUPABASE_URL,
     serviceKey: process.env.SUPABASE_SERVICE_KEY,
   },
-
   // Z-API (WhatsApp)
   zapi: {
     instanceId: process.env.ZAPI_INSTANCE_ID,
@@ -52,29 +48,24 @@ export const config = {
     clientToken: process.env.ZAPI_CLIENT_TOKEN,
     baseUrl: `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE_ID}/token/${process.env.ZAPI_TOKEN}`,
   },
-
   // Identidade da Mila
   mila: {
     phoneNumber: process.env.MILA_PHONE_NUMBER,
     name: 'Mila',
     company: 'Cia do Fitness',
   },
-
   // Grupo de notificação de leads quentes
   group: {
     leadsId: process.env.GROUP_LEADS_ID || '',
   },
-
   // Modo operacional
   mode: process.env.MILA_MODE || 'test',
   testPhoneNumber: process.env.TEST_PHONE_NUMBER || '',
-
   // Servidor
   server: {
     port: parseInt(process.env.PORT || '3000', 10),
     env: process.env.NODE_ENV || 'development',
   },
-
   // Janela de horário para disparar follow-ups (24h)
   followup: {
     horarios: {
