@@ -362,10 +362,7 @@ export async function processarWebhook(webhookBody) {
     /pagar.{0,30}(anual|inteiro).{0,30}vista/i,
     /quanto.{0,20}(pix|dinheiro|vista)/i,
     /desconto.{0,20}(pix|dinheiro|vista)/i,
-    /aceit.{0,20}dinheiro/i,
-    /pagar.{0,20}dinheiro/i,
-    /mensal.{0,20}dinheiro/i,
-    /dinheiro.{0,20}mensal/i,
+
   ];
   const ePerguntaInformativa = PERGUNTAS_INFORMATIVAS.some((r) => r.test(conteudo));
 
