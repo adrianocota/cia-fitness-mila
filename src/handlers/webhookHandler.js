@@ -25,11 +25,11 @@ const TABELA_PLANOS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/o
 const TABELA_COMPLETA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/compare%20os%20planos.png';
 const QUADRO_AULAS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/Quadro%20de%20Horario%20NOVO.png';
 
-const TEXTO_TABELA_PLANOS = 'Na Assinatura Mensal a adesão é R$ 69 e você treina sem fidelidade. Na Assinatura Anual a adesão é grátis e inclui matrícula, avaliação física e consulta nutricional. Qual delas faz mais sentido pra você?';
+const TEXTO_TABELA_PLANOS = 'A Assinatura Mensal é R$ 149/mês, sem fidelidade, com acesso livre a musculação e aulas coletivas. A Assinatura Anual é R$ 119/mês, horário livre, aulas coletivas e consulta nutricional inclusa, sem taxa de adesão. Qual delas faz mais sentido pra você?';
 const TEXTO_TABELA_COMPLETA = 'Aqui tá a comparação completa entre todos os planos. Qual deles faz mais sentido pro seu perfil?';
 const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
-const TEXTO_FLUXO = 'Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 11h e 15h e depois das 20h você encontra menos movimento.';
+const TEXTO_FLUXO = 'Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 10h e 15h e depois das 20h você encontra menos movimento.';
 const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
 const SUFIXO_OFERTA_QUADRO = 'Quer que eu envie o quadro de horários?';
 
@@ -362,6 +362,10 @@ export async function processarWebhook(webhookBody) {
     /pagar.{0,30}(anual|inteiro).{0,30}vista/i,
     /quanto.{0,20}(pix|dinheiro|vista)/i,
     /desconto.{0,20}(pix|dinheiro|vista)/i,
+    /aceit.{0,20}dinheiro/i,
+    /pagar.{0,20}dinheiro/i,
+    /mensal.{0,20}dinheiro/i,
+    /dinheiro.{0,20}mensal/i,
   ];
   const ePerguntaInformativa = PERGUNTAS_INFORMATIVAS.some((r) => r.test(conteudo));
 
