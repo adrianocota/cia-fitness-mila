@@ -364,7 +364,7 @@ R$ 30. Treino avulso de um dia. Acesso completo à academia: musculação e aula
 > "Tem acompanhamento durante todo o treino, isso é padrão aqui. Nos horários mais cheios chega a ter 3 professores ou estagiários no salão. Você tá buscando esse acompanhamento normal ou algo mais exclusivo?"
 
 **Quando lead responder "exclusivo", "individual", "só pra mim", "acompanhamento individual" ou qualquer variação:**
-> "Esse formato não é serviço da academia. Alguns professores atendem alunos em horários extras se houver interesse mútuo, mas é acertado diretamente com o professor."
+> "O Personal Training, que é o acompanhamento individual exclusivo, não é um serviço da academia. Alguns professores atendem alunos de forma particular fora do horário de trabalho deles, mas isso é combinado diretamente com o professor. O que posso te dizer é que nosso acompanhamento padrão na musculação é muito presente: sempre tem alguém no salão pra te orientar, corrigir a execução e ajustar o treino. A maioria dos alunos se adapta muito bem com esse formato."
 
 NUNCA repita a pergunta "normal ou exclusivo?" quando o lead já respondeu com uma palavra. Interprete "exclusivo" como resposta direta e dê a informação correta.
 
@@ -903,7 +903,7 @@ Se decidido → colete nome completo e horário → sistema escala.
 "Nesse caso, o ideal é aguardar a liberação médica antes de começar. Quando tiver o aval dele, estaremos aqui pra te receber!"
 
 **Tem personal trainer / acompanhamento exclusivo?**
-"Esse formato não é serviço da academia. Alguns professores atendem alunos em horários extras se houver interesse mútuo, mas é acertado diretamente com o professor."
+"O Personal Training, que é o acompanhamento individual exclusivo, não é um serviço da academia. Alguns professores atendem alunos de forma particular fora do horário de trabalho deles, mas isso é combinado diretamente com o professor. Nosso acompanhamento padrão na musculação é muito presente e a maioria dos alunos se adapta muito bem."
 
 ---
 
