@@ -29,6 +29,7 @@ const TEXTO_TABELA_PLANOS = 'A Assinatura Mensal é R$ 149/mês, sem fidelidade,
 const TEXTO_TABELA_COMPLETA = 'Aqui tá a comparação completa entre todos os planos. Qual deles faz mais sentido pro seu perfil?';
 const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
+const TEXTO_REENVIO_TABELA = 'Já te enviei a tabela de planos antes. Quer que eu mande novamente?';
 const TEXTO_FLUXO = 'Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 10h e 15h e depois das 20h você encontra menos movimento.';
 const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
 
@@ -44,13 +45,16 @@ function detectarModalidadeMencionada(texto) {
   const lower = texto.toLowerCase();
   const todasModalidades = [
     'jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix',
-    'ritbox', 'ritboxe', 'pilates', 'yoga', 'spinning', 'crossfit',
+    'ritbox', 'ritboxe', 'pilates',
+    // yoga e typos comuns
+    'yoga', 'youga', 'ioga',
+    'spinning', 'crossfit',
     'muay thai', 'boxe', 'step',
     'hiit', 'tabata', 'localizada', 'alongamento', 'stretching',
     'barre', 'pole', 'aqua', 'natação', 'ciclismo', 'rpm',
     'body pump', 'body combat', 'body attack', 'kung fu', 'kungfu',
     'capoeira', 'jiu jitsu', 'jiujitsu', 'karate', 'judô', 'judo',
-    // dança, ballet, forró e sertanejo removidos daqui — tratados pelo TERMOS_DANCA acima
+    // dança, ballet, forró e sertanejo removidos — tratados pelo TERMOS_DANCA
   ];
   for (const modalidade of todasModalidades) {
     if (lower.includes(modalidade)) return modalidade;
@@ -92,7 +96,8 @@ function detectarPerguntaFluxo(texto) {
   return PALAVRAS_FLUXO.some((r) => r.test(texto));
 }
 
-const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
+// v5.9 — adicionado "diferen" para capturar "qual diferença entre eles?"
+const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|diferen|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
 const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|to interessad|estou interessad|sobre|me explica|como funciona|diferen[çc]|diferente|entre os|entre eles|compara|comparar|qual|quanto|o que muda|o que inclui)/i;
 const TERMOS_GRADE_AULAS = /(quadro.{0,20}hor|grade.{0,20}hor|hor[aá]rio.{0,20}aula|hor[aá]rio.{0,20}coletiv|quadro.{0,20}aula|ver.{0,20}quadro|manda.{0,20}quadro|envia.{0,20}quadro|quarto.{0,20}hor)/i;
 
@@ -196,6 +201,33 @@ function ultimaMensagemMilaFoiOfertaDeFluxo(historico) {
   return saidaMila.conteudo === TEXTO_REENVIO_FLUXO;
 }
 
+// v5.9 — detecta oferta de tabela de planos feita pelo GPT ou pelo webhook
+function ultimaMensagemMilaFoiOfertaDeTabela(historico) {
+  const saidaMila = historico
+    .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
+    .slice(-1)[0];
+  if (!saidaMila?.conteudo) return false;
+  const c = saidaMila.conteudo.toLowerCase();
+  const padroes = [
+    'tabela comparativa dos planos',
+    'tabela de planos',
+    'envie a tabela',
+    'enviar a tabela',
+    'te envio a tabela',
+    'mando a tabela',
+    'tabela dos planos',
+    'quer que eu envie a tabela',
+    'posso te enviar a tabela',
+    'já te enviei a tabela',
+    texto_reenvio_tabela_lower(),
+  ];
+  return padroes.some((p) => c.includes(p));
+}
+
+function texto_reenvio_tabela_lower() {
+  return TEXTO_REENVIO_TABELA.toLowerCase();
+}
+
 function dentroJanelaSilencio(lead) {
   if (lead.status !== 'transferido') return false;
   if (!lead.ultima_interacao_em) return false;
@@ -296,7 +328,6 @@ export async function processarWebhook(webhookBody) {
       const systemPrompt = montarSystemPrompt();
       let historicoFormatado = [];
       if (retomandoContexto) {
-        // v5.9 — histórico aumentado para 20 mensagens
         const historicoBruto = await buscarHistorico(lead.id, 20);
         historicoFormatado = formatarHistorico(historicoBruto.slice(0, -1));
       }
@@ -343,7 +374,6 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // v5.9 — histórico aumentado para 20 mensagens
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
@@ -363,7 +393,7 @@ export async function processarWebhook(webhookBody) {
     /pagar.{0,30}(anual|inteiro).{0,30}vista/i,
     /quanto.{0,20}(pix|dinheiro|vista)/i,
     /desconto.{0,20}(pix|dinheiro|vista)/i,
-    // v5.9 — perguntar sobre dinheiro/pix no mensal é informação, não escalada (escala só na insistência)
+    // v5.9 — dinheiro/pix mensal é informação, não escalada (escala só na insistência)
     /pagar.{0,25}mensal.{0,25}(dinheiro|pix)/i,
     /(dinheiro|pix).{0,25}mensal/i,
     /mensalidade.{0,25}(dinheiro|pix)/i,
@@ -375,6 +405,24 @@ export async function processarWebhook(webhookBody) {
   const { escalar, motivo } = await detectarEscalacao({ historico: historicoFormatado, mensagemNova: conteudo });
   if (escalar && !ePerguntaInformativa) {
     await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado' });
+    return;
+  }
+
+  // v5.9 — Confirmação de reenvio da tabela de planos
+  if (ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto) && detectarConfirmacaoReenvio(conteudo)) {
+    console.log(`📋 Lead confirmou envio da tabela de planos.`);
+    const usarCompleta = tabelaCompletaJaFoiEnviada(historicoBruto);
+    const url = usarCompleta ? TABELA_COMPLETA_URL : TABELA_PLANOS_URL;
+    const texto = usarCompleta ? TEXTO_TABELA_COMPLETA : TEXTO_TABELA_PLANOS;
+    const marker = usarCompleta ? '[tabela completa enviada]' : '[tabela planos enviada]';
+    try {
+      await enviarImagem(phone, url, ' ');
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
+      await enviarTexto(phone, texto);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: texto });
+    } catch (error) {
+      console.error('❌ Erro ao enviar tabela confirmada:', error.message);
+    }
     return;
   }
 
