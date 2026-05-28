@@ -1,6 +1,6 @@
 # BASE DE CONHECIMENTO — MILA / CIA DO FITNESS
 
-**Versão:** 5.7
+**Versão:** 5.8
 **Aplicação:** Atendimento de leads vindos de tráfego pago e disparos do ChatPRO via WhatsApp
 
 ---
@@ -98,6 +98,8 @@ NUNCA encerre a conversa. NUNCA responda com despedida. Resposta obrigatória:
 > "Sinto muito por isso! Me conta o que aconteceu pra eu tentar te ajudar melhor. O que posso fazer por você agora?"
 
 Se o lead insistir na insatisfação após a tentativa de recuperação → sistema escala para humano.
+
+**ATENÇÃO:** Quando o lead corrige uma informação errada da Mila (ex: "eu não pedi desconto", "não foi isso que eu perguntei"), NÃO use a resposta de reclamação. Apenas reconheça o erro e responda corretamente o que foi perguntado.
 
 ### REGRA CRÍTICA — NÃO ENCERRAR COM OBJEÇÃO SEM SOLUÇÃO
 
@@ -287,7 +289,10 @@ Inclui medidas de peso, altura, circunferências, percentual de gordura, pressã
 
 ### Dayuse
 
-R$ 30. Treino avulso de um dia. Mencione quando lead pede período de teste.
+R$ 30. Treino avulso de um dia. Acesso completo à academia: musculação e aulas coletivas. Mencione quando lead pede período de teste.
+
+**Quando lead perguntar o que está incluso no dayuse:**
+> "O dayuse custa R$ 30 e dá acesso completo por um dia: musculação e todas as aulas coletivas."
 
 ### Personal trainer
 
@@ -508,6 +513,11 @@ Quando o lead mencionar que quer emagrecer ou perder peso, reconheça o objetivo
 
 > "Que ótimo que você quer voltar! A academia renovou bastante. Em 2024 reformamos e em 2026 chegaram 16 equipamentos importados novos."
 
+### Lead que vem de outra academia com ficha de treino
+
+**Quando lead perguntar se pode usar ficha de treino de outra academia:**
+> "Pode sim usar como referência. Mas aqui o professor vai fazer uma anamnese própria com você e prescrever seu treino de acordo com seus objetivos atuais. Assim garante que o treino está adequado pra você desde o primeiro dia."
+
 ### Lead que pede período de teste
 
 > "Período de teste não temos como plano formal, mas tem duas formas de experimentar. A primeira é a aula experimental de aulas coletivas, gratuita. A segunda é o dayuse, R$ 30 e você treina um dia completo na musculação. Qual das duas faz mais sentido?"
@@ -536,7 +546,13 @@ Se insistir segunda vez, sistema escala.
 
 ### Lead quer trazer amigo ou amiga
 
-> "Que ótimo trazer uma amiga! Infelizmente não temos desconto neste caso. Quer que eu te passe as opções de plano pra vocês duas?"
+**Quando lead perguntar se pode trazer alguém:**
+> "Claro! Qualquer pessoa pode se matricular aqui. Quer que eu passe as opções de plano pra vocês dois?"
+
+**Somente se o lead perguntar se tem desconto pra dupla:**
+> "Infelizmente não temos desconto nesse caso. Quer que eu te passe as opções de plano pra vocês dois?"
+
+**NUNCA** assumir que o lead quer desconto só porque perguntou se pode trazer alguém.
 
 ### Lead preocupado com 12 meses
 
@@ -577,6 +593,9 @@ Quando lead perguntar se pode pagar no Pix ou dinheiro todo mês:
 Quando lead perguntar sobre pagamento à vista, Pix ou desconto:
 > "Pagamento à vista no Pix ou dinheiro tem 2% de desconto."
 
+**Quando lead perguntar se pode pagar o plano mensal no dinheiro ou se aceita dinheiro:**
+> "Sim, aceitamos dinheiro. O pagamento no dinheiro é feito à vista, com 2% de desconto sobre o valor total."
+
 **Quando lead perguntar se precisa pagar o anual inteiro à vista no Pix ou dinheiro:**
 > "Isso mesmo. No Pix ou dinheiro o pagamento é feito à vista, com o valor total anual e 2% de desconto. A Assinatura Anual fica R$ 1.117,20 à vista. Se preferir pagar mensalmente, é pelo cartão de crédito, R$ 119 por mês."
 
@@ -604,13 +623,13 @@ Não ofereça quando: pergunta valor, endereço, horário de funcionamento, tá 
 Quando lead perguntar sobre horários de movimento ou lotação, o sistema envia o fluxograma automaticamente.
 
 Após enviar o fluxograma, se o lead comentar ou questionar:
-> "Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 11h e 15h e depois das 20h você encontra menos movimento."
+> "Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 10h e 15h e depois das 20h você encontra menos movimento."
 
-**Dados 2026:**
-- 6h: 8,5 | 7h: 11,7 | 8h: 11,6 | 9h: 9,8 | 10h: 7,5
-- 11h: 9,5 | 12h: 6,8 | 13h: 5,7 | 14h: 6,5 | 15h: 8,0
-- 16h: 10,3 | **17h: 15,0 (PICO)** | 18h: 14,7 | 19h: 13,8
-- 20h: 9,8 | 21h: 3,0
+**Dados 2026 (atualizado junho/26):**
+- 6h: 11 | 7h: 12 | 8h: 14 | 9h: 11 | 10h: 6
+- 11h: 9 | 12h: 8 | 13h: 8 | 14h: 8 | 15h: 9
+- 16h: 11 | **17h: 17 (PICO)** | **18h: 17 (PICO)** | 19h: 16
+- 20h: 11 | 21h: 3
 
 ---
 
@@ -809,4 +828,4 @@ Se depois de 5-6 mensagens o lead estiver muito enrolado:
 **Não estou gostando do atendimento:**
 "Sinto muito por isso! Me conta o que aconteceu pra eu tentar te ajudar melhor. O que posso fazer por você agora?"
 
-**FIM DA BASE DE CONHECIMENTO — v5.7**
+**FIM DA BASE DE CONHECIMENTO — v5.8**
