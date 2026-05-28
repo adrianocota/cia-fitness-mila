@@ -31,11 +31,13 @@ const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Train
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
 const TEXTO_FLUXO = 'Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 10h e 15h e depois das 20h você encontra menos movimento.';
 const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
-const SUFIXO_OFERTA_QUADRO = 'Quer que eu envie o quadro de horários?';
 
 const MODALIDADES_CONFIRMADAS = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
 const TERMOS_CONTEXTO_PLANO = /(econômic|economic|mensal|anual|plano|assinatura|clube\+|clube plus)/i;
 const TERMOS_AVALIANDO = /(avaliando|comparando|pesquisando|ainda.{0,15}decid|ainda.{0,15}pens)/i;
+
+// v5.9 — termos de dança tratados separadamente antes do detector genérico
+const TERMOS_DANCA = /(dança|danca|aula.{0,15}dan[çc]|forró|forro|sertanejo|ballet)/i;
 
 function detectarModalidadeMencionada(texto) {
   if (!texto) return null;
@@ -43,12 +45,12 @@ function detectarModalidadeMencionada(texto) {
   const todasModalidades = [
     'jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix',
     'ritbox', 'ritboxe', 'pilates', 'yoga', 'spinning', 'crossfit',
-    'muay thai', 'boxe', 'dance', 'aeróbica', 'aerobica', 'step',
+    'muay thai', 'boxe', 'step',
     'hiit', 'tabata', 'localizada', 'alongamento', 'stretching',
     'barre', 'pole', 'aqua', 'natação', 'ciclismo', 'rpm',
     'body pump', 'body combat', 'body attack', 'kung fu', 'kungfu',
     'capoeira', 'jiu jitsu', 'jiujitsu', 'karate', 'judô', 'judo',
-    'dança', 'danca', 'ballet', 'forró', 'forro', 'sertanejo',
+    // dança, ballet, forró e sertanejo removidos daqui — tratados pelo TERMOS_DANCA acima
   ];
   for (const modalidade of todasModalidades) {
     if (lower.includes(modalidade)) return modalidade;
@@ -92,13 +94,11 @@ function detectarPerguntaFluxo(texto) {
 
 const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
 const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|to interessad|estou interessad|sobre|me explica|como funciona|diferen[çc]|diferente|entre os|entre eles|compara|comparar|qual|quanto|o que muda|o que inclui)/i;
-// Termos que indicam pedido de grade/quadro de aulas — bloqueiam detecção de planos
 const TERMOS_GRADE_AULAS = /(quadro.{0,20}hor|grade.{0,20}hor|hor[aá]rio.{0,20}aula|hor[aá]rio.{0,20}coletiv|quadro.{0,20}aula|ver.{0,20}quadro|manda.{0,20}quadro|envia.{0,20}quadro|quarto.{0,20}hor)/i;
 
 function detectarPerguntaPlanos(texto) {
   if (!texto) return false;
   if (TERMOS_AVALIANDO.test(texto)) return false;
-  // Se o lead está pedindo o quadro/grade de aulas, não é pergunta de planos
   if (TERMOS_GRADE_AULAS.test(texto)) return false;
   return TERMOS_PLANOS.test(texto) && INDICADORES_PEDIDO.test(texto);
 }
@@ -175,7 +175,6 @@ function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
     .slice(-1)[0];
   if (!saidaMila?.conteudo) return false;
   const c = saidaMila.conteudo;
-  // Detecta qualquer variação de oferta do quadro de horários
   const padroes = [
     'Quer que eu envie o quadro de horários?',
     'posso te enviar o quadro de horários',
@@ -297,7 +296,8 @@ export async function processarWebhook(webhookBody) {
       const systemPrompt = montarSystemPrompt();
       let historicoFormatado = [];
       if (retomandoContexto) {
-        const historicoBruto = await buscarHistorico(lead.id, 10);
+        // v5.9 — histórico aumentado para 20 mensagens
+        const historicoBruto = await buscarHistorico(lead.id, 20);
         historicoFormatado = formatarHistorico(historicoBruto.slice(0, -1));
       }
       const resposta = await gerarResposta({
@@ -343,7 +343,8 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  const historicoBruto = await buscarHistorico(lead.id, 10);
+  // v5.9 — histórico aumentado para 20 mensagens
+  const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
@@ -362,7 +363,12 @@ export async function processarWebhook(webhookBody) {
     /pagar.{0,30}(anual|inteiro).{0,30}vista/i,
     /quanto.{0,20}(pix|dinheiro|vista)/i,
     /desconto.{0,20}(pix|dinheiro|vista)/i,
-
+    // v5.9 — perguntar sobre dinheiro/pix no mensal é informação, não escalada (escala só na insistência)
+    /pagar.{0,25}mensal.{0,25}(dinheiro|pix)/i,
+    /(dinheiro|pix).{0,25}mensal/i,
+    /mensalidade.{0,25}(dinheiro|pix)/i,
+    /mensal.{0,25}dinheiro/i,
+    /mensal.{0,25}pix/i,
   ];
   const ePerguntaInformativa = PERGUNTAS_INFORMATIVAS.some((r) => r.test(conteudo));
 
@@ -396,6 +402,19 @@ export async function processarWebhook(webhookBody) {
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
     } catch (error) {
       console.error('❌ Erro ao reenviar fluxograma:', error.message);
+    }
+    return;
+  }
+
+  // v5.9 — Dança → Zumba (tratamento antes do detector genérico de modalidades)
+  if (TERMOS_DANCA.test(conteudo)) {
+    console.log(`💃 Termo de dança detectado — redirecionando para Zumba.`);
+    const respostaDanca = 'Aula de dança específica não temos, mas temos Zumba, que mistura dança e exercício num formato bem animado. São 30 minutos de Fast Training. Quer que eu envie o quadro de horários?';
+    try {
+      await enviarTexto(phone, respostaDanca);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaDanca });
+    } catch (error) {
+      console.error('❌ Erro ao enviar resposta de dança:', error.message);
     }
     return;
   }
