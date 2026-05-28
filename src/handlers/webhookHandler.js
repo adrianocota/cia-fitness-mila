@@ -33,11 +33,47 @@ const TEXTO_REENVIO_TABELA = 'Já te enviei a tabela de planos antes. Quer que e
 const TEXTO_FLUXO = 'Essa tabela representa uma média de frequência dos alunos. Claro que há dias mais cheios e mais vazios — início de semana e dias quentes tendem a ser mais movimentados, enquanto sexta-feira e dias frios costumam ser mais tranquilos. No geral, entre 10h e 15h e depois das 20h você encontra menos movimento.';
 const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
 
+// ─── DEBOUNCE — fila de mensagens por número ─────────────────────────────────
+// Quando o lead envia mensagens em sequência rápida (ex: "e o gympass" + "como funciona?"),
+// acumulamos tudo e processamos junto após DEBOUNCE_MS de silêncio.
+const DEBOUNCE_MS = 3000;
+const filaDebounce = new Map(); // phone -> { conteudos: [], timer, webhookBody }
+
+function agendarProcessamento(phone, conteudo, webhookBody) {
+  return new Promise((resolve) => {
+    if (filaDebounce.has(phone)) {
+      const fila = filaDebounce.get(phone);
+      clearTimeout(fila.timer);
+      fila.conteudos.push(conteudo);
+      fila.timer = setTimeout(() => {
+        const conteudoFinal = fila.conteudos.join(' ');
+        filaDebounce.delete(phone);
+        resolve({ conteudoFinal, deveProcessar: true });
+      }, DEBOUNCE_MS);
+    } else {
+      const fila = {
+        conteudos: [conteudo],
+        webhookBody,
+        timer: setTimeout(() => {
+          const conteudoFinal = fila.conteudos.join(' ');
+          filaDebounce.delete(phone);
+          resolve({ conteudoFinal, deveProcessar: true });
+        }, DEBOUNCE_MS),
+      };
+      filaDebounce.set(phone, fila);
+    }
+
+    // Quem chega depois apenas acumula — não resolve a promise
+    // (a promise só resolve quando o timer dispara)
+    // Para mensagens adicionais que não criaram a promise, não fazemos nada
+    // O timer resetado vai resolver a promise original
+  });
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const MODALIDADES_CONFIRMADAS = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
 const TERMOS_CONTEXTO_PLANO = /(econômic|economic|mensal|anual|plano|assinatura|clube\+|clube plus)/i;
 const TERMOS_AVALIANDO = /(avaliando|comparando|pesquisando|ainda.{0,15}decid|ainda.{0,15}pens)/i;
-
-// v5.9 — termos de dança tratados separadamente antes do detector genérico
 const TERMOS_DANCA = /(dança|danca|aula.{0,15}dan[çc]|forró|forro|sertanejo|ballet)/i;
 
 function detectarModalidadeMencionada(texto) {
@@ -46,7 +82,6 @@ function detectarModalidadeMencionada(texto) {
   const todasModalidades = [
     'jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix',
     'ritbox', 'ritboxe', 'pilates',
-    // yoga e typos comuns
     'yoga', 'youga', 'ioga',
     'spinning', 'crossfit',
     'muay thai', 'boxe', 'step',
@@ -54,7 +89,6 @@ function detectarModalidadeMencionada(texto) {
     'barre', 'pole', 'aqua', 'natação', 'ciclismo', 'rpm',
     'body pump', 'body combat', 'body attack', 'kung fu', 'kungfu',
     'capoeira', 'jiu jitsu', 'jiujitsu', 'karate', 'judô', 'judo',
-    // dança, ballet, forró e sertanejo removidos — tratados pelo TERMOS_DANCA
   ];
   for (const modalidade of todasModalidades) {
     if (lower.includes(modalidade)) return modalidade;
@@ -96,7 +130,6 @@ function detectarPerguntaFluxo(texto) {
   return PALAVRAS_FLUXO.some((r) => r.test(texto));
 }
 
-// v5.9 — adicionado "diferen" para capturar "qual diferença entre eles?"
 const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|diferen|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
 const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|to interessad|estou interessad|sobre|me explica|como funciona|diferen[çc]|diferente|entre os|entre eles|compara|comparar|qual|quanto|o que muda|o que inclui)/i;
 const TERMOS_GRADE_AULAS = /(quadro.{0,20}hor|grade.{0,20}hor|hor[aá]rio.{0,20}aula|hor[aá]rio.{0,20}coletiv|quadro.{0,20}aula|ver.{0,20}quadro|manda.{0,20}quadro|envia.{0,20}quadro|quarto.{0,20}hor)/i;
@@ -116,16 +149,11 @@ function detectarPedidoComparacaoCompleta(texto) {
 }
 
 function todosOsPlanosCitados(historico) {
-  const textoCompleto = historico
-    .map((m) => m.conteudo || '')
-    .join(' ')
-    .toLowerCase();
-
+  const textoCompleto = historico.map((m) => m.conteudo || '').join(' ').toLowerCase();
   const mensal = /assinatura mensal|r\$\s*149/.test(textoCompleto);
   const anual = /assinatura anual|r\$\s*119/.test(textoCompleto);
   const economica = /econômic|econômica anual|r\$\s*95/.test(textoCompleto);
   const clube = /clube\+|clube plus|12x|r\$\s*109/.test(textoCompleto);
-
   return mensal && anual && economica && clube;
 }
 
@@ -144,8 +172,7 @@ const CONFIRMACOES_REENVIO = [
   /^claro$/i, /^quero$/i, /^quero sim$/i, /^tá$/i, /^ta$/i,
   /^ok$/i, /^isso$/i, /^manda novamente$/i, /^manda de novo$/i,
   /^envia$/i, /^envia sim$/i, /^sim por favor$/i, /^sim, por favor$/i,
-  /^quero sim$/i, /^quero$/i, /^manda sim$/i, /^pode mandar$/i,
-  /^vai$/i, /^bora$/i, /^isso aí$/i,
+  /^pode mandar$/i, /^vai$/i, /^bora$/i, /^isso aí$/i,
 ];
 
 function detectarConfirmacaoReenvio(texto) {
@@ -175,9 +202,7 @@ function fluxogramaJaFoiEnviado(historico) {
 }
 
 function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
-  const saidaMila = historico
-    .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
-    .slice(-1)[0];
+  const saidaMila = historico.filter((m) => m.direcao === 'saida' && m.origem === 'mila').slice(-1)[0];
   if (!saidaMila?.conteudo) return false;
   const c = saidaMila.conteudo;
   const padroes = [
@@ -194,18 +219,13 @@ function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
 }
 
 function ultimaMensagemMilaFoiOfertaDeFluxo(historico) {
-  const saidaMila = historico
-    .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
-    .slice(-1)[0];
+  const saidaMila = historico.filter((m) => m.direcao === 'saida' && m.origem === 'mila').slice(-1)[0];
   if (!saidaMila?.conteudo) return false;
   return saidaMila.conteudo === TEXTO_REENVIO_FLUXO;
 }
 
-// v5.9 — detecta oferta de tabela de planos feita pelo GPT ou pelo webhook
 function ultimaMensagemMilaFoiOfertaDeTabela(historico) {
-  const saidaMila = historico
-    .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
-    .slice(-1)[0];
+  const saidaMila = historico.filter((m) => m.direcao === 'saida' && m.origem === 'mila').slice(-1)[0];
   if (!saidaMila?.conteudo) return false;
   const c = saidaMila.conteudo.toLowerCase();
   const padroes = [
@@ -218,14 +238,9 @@ function ultimaMensagemMilaFoiOfertaDeTabela(historico) {
     'tabela dos planos',
     'quer que eu envie a tabela',
     'posso te enviar a tabela',
-    'já te enviei a tabela',
-    texto_reenvio_tabela_lower(),
+    TEXTO_REENVIO_TABELA.toLowerCase(),
   ];
   return padroes.some((p) => c.includes(p));
-}
-
-function texto_reenvio_tabela_lower() {
-  return TEXTO_REENVIO_TABELA.toLowerCase();
 }
 
 function dentroJanelaSilencio(lead) {
@@ -233,17 +248,16 @@ function dentroJanelaSilencio(lead) {
   if (!lead.ultima_interacao_em) return false;
   const JANELA_HORAS = 2;
   const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
-  const agora = Date.now();
-  return (agora - ultimaInteracao) / (1000 * 60 * 60) < JANELA_HORAS;
+  return (Date.now() - ultimaInteracao) / (1000 * 60 * 60) < JANELA_HORAS;
 }
 
 function diasDeSilencio(lead) {
   if (!lead.ultima_interacao_em) return 0;
   const ultimaInteracao = new Date(lead.ultima_interacao_em).getTime();
-  const agora = Date.now();
-  return (agora - ultimaInteracao) / (1000 * 60 * 60 * 24);
+  return (Date.now() - ultimaInteracao) / (1000 * 60 * 60 * 24);
 }
 
+// ─── PROCESSAMENTO PRINCIPAL ──────────────────────────────────────────────────
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
@@ -283,16 +297,48 @@ export async function processarWebhook(webhookBody) {
 
   const { phone, nome, conteudo, tipo } = mensagem;
 
-  if (tipo === 'texto') {
-    const duplicataConteudo = await verificarDuplicataConteudo(phone, conteudo);
-    if (duplicataConteudo) return;
+  // Só aplica debounce em mensagens de texto
+  if (tipo !== 'texto') {
+    await processarMensagem(phone, nome, conteudo, tipo, webhookBody);
+    return;
   }
+
+  const duplicataConteudo = await verificarDuplicataConteudo(phone, conteudo);
+  if (duplicataConteudo) return;
 
   if (isTestMode() && phone !== config.testPhoneNumber) {
     console.log(`🧪 Modo teste ativo. Ignorando ${phone}.`);
     return;
   }
 
+  // Debounce: acumula mensagens do mesmo número por 3 segundos
+  console.log(`⏳ Debounce iniciado para ${phone}: "${conteudo}"`);
+
+  // Se já tem fila para esse número, acumula e reseta o timer
+  if (filaDebounce.has(phone)) {
+    const fila = filaDebounce.get(phone);
+    clearTimeout(fila.timer);
+    fila.conteudos.push(conteudo);
+    fila.timer = setTimeout(async () => {
+      const conteudoFinal = fila.conteudos.join(' ');
+      filaDebounce.delete(phone);
+      console.log(`🔄 Debounce disparado para ${phone}: "${conteudoFinal}"`);
+      await processarMensagem(phone, nome, conteudoFinal, tipo, webhookBody);
+    }, DEBOUNCE_MS);
+  } else {
+    // Primeira mensagem desse número: cria a fila
+    const fila = { conteudos: [conteudo], timer: null };
+    fila.timer = setTimeout(async () => {
+      const conteudoFinal = fila.conteudos.join(' ');
+      filaDebounce.delete(phone);
+      console.log(`🔄 Debounce disparado para ${phone}: "${conteudoFinal}"`);
+      await processarMensagem(phone, nome, conteudoFinal, tipo, webhookBody);
+    }, DEBOUNCE_MS);
+    filaDebounce.set(phone, fila);
+  }
+}
+
+async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   let lead;
   try {
     lead = await buscarOuCriarLead({ telefone: phone, nome: primeiroNome(nome), campanhaOrigem: null });
@@ -393,12 +439,16 @@ export async function processarWebhook(webhookBody) {
     /pagar.{0,30}(anual|inteiro).{0,30}vista/i,
     /quanto.{0,20}(pix|dinheiro|vista)/i,
     /desconto.{0,20}(pix|dinheiro|vista)/i,
-    // v5.9 — dinheiro/pix mensal é informação, não escalada (escala só na insistência)
     /pagar.{0,25}mensal.{0,25}(dinheiro|pix)/i,
     /(dinheiro|pix).{0,25}mensal/i,
     /mensalidade.{0,25}(dinheiro|pix)/i,
     /mensal.{0,25}dinheiro/i,
     /mensal.{0,25}pix/i,
+    // gympass e totalpass são sempre informativas
+    /gympass/i,
+    /totalpass/i,
+    /tp2/i,
+    /gym.{0,5}pass/i,
   ];
   const ePerguntaInformativa = PERGUNTAS_INFORMATIVAS.some((r) => r.test(conteudo));
 
@@ -408,7 +458,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // v5.9 — Confirmação de reenvio da tabela de planos
+  // Confirmação de reenvio da tabela de planos
   if (ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto) && detectarConfirmacaoReenvio(conteudo)) {
     console.log(`📋 Lead confirmou envio da tabela de planos.`);
     const usarCompleta = tabelaCompletaJaFoiEnviada(historicoBruto);
@@ -454,7 +504,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // v5.9 — Dança → Zumba (tratamento antes do detector genérico de modalidades)
+  // Dança → Zumba
   if (TERMOS_DANCA.test(conteudo)) {
     console.log(`💃 Termo de dança detectado — redirecionando para Zumba.`);
     const respostaDanca = 'Aula de dança específica não temos, mas temos Zumba, que mistura dança e exercício num formato bem animado. São 30 minutos de Fast Training. Quer que eu envie o quadro de horários?';
@@ -526,12 +576,12 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Tabela completa — só envia se todos os planos já foram citados OU lead pediu comparação explícita
+  // Tabela completa
   const pedidoComparacao = detectarPedidoComparacaoCompleta(conteudo);
   const todosPlanosCitados = todosOsPlanosCitados(historicoBruto);
 
   if ((pedidoComparacao || todosPlanosCitados) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
-    console.log(`📊 Enviando tabela completa. Pedido explícito: ${pedidoComparacao}. Todos citados: ${todosPlanosCitados}`);
+    console.log(`📊 Enviando tabela completa.`);
     try {
       await enviarImagem(phone, TABELA_COMPLETA_URL, ' ');
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[tabela completa enviada]' });
@@ -543,7 +593,7 @@ export async function processarWebhook(webhookBody) {
     return;
   }
 
-  // Tabela básica (Mensal + Anual) — primeira pergunta sobre planos
+  // Tabela básica
   if (detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
     console.log(`📋 Enviando tabela básica de planos.`);
     try {
