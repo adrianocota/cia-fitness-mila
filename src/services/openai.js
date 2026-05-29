@@ -137,4 +137,75 @@ MOTIVO: [se SIM, qual gatilho específico ocorreu. Se NAO, deixe em branco]`;
   }
 }
 
+export async function detectarAmbiguidade({ historico, mensagemNova }) {
+  // Heurística rápida: mensagens muito curtas ou respostas simples não precisam de checagem
+  const limpo = mensagemNova.trim().toLowerCase();
+  if (limpo.length < 8) return null;
+  // Respostas simples de confirmação nunca são ambíguas
+  const respostasSimples = /^(sim|não|nao|ok|tá|ta|claro|pode|quero|anual|mensal|manhã|manha|noite|tarde|s|n)$/i;
+  if (respostasSimples.test(limpo)) return null;
+
+  const prompt = `Você analisa mensagens de WhatsApp enviadas para uma academia de ginástica chamada Cia do Fitness.
+
+Avalie se a mensagem abaixo tem intenção CLARA ou AMBÍGUA para uma atendente virtual responder.
+
+AMBÍGUA = a mensagem mistura dois assuntos diferentes OU pode ser interpretada de duas formas completamente distintas, tornando impossível saber exatamente o que o lead quer saber.
+
+CLARA = tem uma intenção óbvia, mesmo que mal escrita ou com erro de português. Uma pergunta sobre um único assunto é CLARA, mesmo que informal.
+
+Exemplos CLAROS (não perguntar):
+- "quanto custa?" → clara, é sobre preço
+- "tem estacionamento?" → clara, é sobre estacionamento
+- "posso pagar no pix?" → clara, é sobre pagamento
+- "tem professor?" → clara, é sobre equipe
+- "quero me matricular" → clara, é intenção de matrícula
+- "ola bom dia" → clara, é saudação
+- "tem personal?" → clara, quer saber sobre personal trainer
+- "tem aulas?" → clara, quer saber sobre aulas coletivas
+
+Exemplos AMBÍGUOS (perguntar):
+- "tem aulas com personal?" → ambíguo: quer saber sobre aulas coletivas ou sobre personal trainer?
+- "como funciona o treino e o pagamento?" → ambíguo: dois assuntos distintos ao mesmo tempo
+- "quero saber sobre horários e planos" → ambíguo: dois assuntos ao mesmo tempo
+- "tem desconto e parcelamento?" → pode ser respondido junto, mas se muito diferentes, esclarecer
+
+Histórico recente (para contexto):
+${historico.slice(-4).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('
+')}
+
+Mensagem do lead: "${mensagemNova}"
+
+Se AMBÍGUA, escreva uma pergunta de esclarecimento natural e curta no formato:
+"Sou uma atendente virtual e quero te ajudar direitinho! Você quer saber sobre [interpretação A] ou sobre [interpretação B]?"
+
+Responda APENAS no formato:
+CLARA: SIM ou NAO
+PERGUNTA: [se NAO, a pergunta de esclarecimento. Se SIM, deixe em branco]`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: config.openai.model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 120,
+      temperature: 0,
+    });
+
+    const texto = completion.choices[0]?.message?.content?.trim() || '';
+    const eClara = /CLARA:\s*SIM/i.test(texto);
+    if (eClara) return null;
+
+    const perguntaMatch = texto.match(/PERGUNTA:\s*(.+)/i);
+    const pergunta = perguntaMatch ? perguntaMatch[1].trim() : null;
+
+    if (pergunta && pergunta.length > 10) {
+      console.log(`🤔 Ambiguidade detectada: "${pergunta}"`);
+      return pergunta;
+    }
+    return null;
+  } catch (error) {
+    console.error('❌ Erro ao detectar ambiguidade:', error.message);
+    return null;
+  }
+}
+
 export default openai;
