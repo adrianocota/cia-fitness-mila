@@ -109,7 +109,7 @@ NÃO É GATILHO — NUNCA transfira por esses motivos:
 - Lead perguntou o que é TP2, Gympass Silver, ou qualquer detalhe dos convênios — a atendente sabe responder
 
 Últimas mensagens da conversa:
-${historico.slice(-10).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('\n')}
+${historico.slice(-10).map((m) => (m.role === 'user' ? 'Lead' : 'Mila') + ': ' + m.content).join('\n')}
 
 Última mensagem do lead: "${mensagemNova}"
 
@@ -170,8 +170,7 @@ Exemplos AMBÍGUOS (perguntar):
 - "tem desconto e parcelamento?" → pode ser respondido junto, mas se muito diferentes, esclarecer
 
 Histórico recente (para contexto):
-${historico.slice(-4).map((m) => `${m.role === 'user' ? 'Lead' : 'Mila'}: ${m.content}`).join('
-')}
+${historico.slice(-4).map((m) => (m.role === 'user' ? 'Lead' : 'Mila') + ': ' + m.content).join('\n')}
 
 Mensagem do lead: "${mensagemNova}"
 
