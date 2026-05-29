@@ -439,6 +439,9 @@ Não temos. Estamos no centro do Carneirinhos, com lanchonete, padaria e restaur
 
 Sem limite dentro do horário de funcionamento.
 
+**Quando lead perguntar se pode ir todos os dias ou com que frequência:**
+> "Sim, pode vir todos os dias! Não tem limite de frequência. Você treina quantos dias quiser dentro do horário de funcionamento."
+
 ### Idade
 
 Até 13 anos: não recomendado. 14-17 anos: bem-vindo com treino supervisionado. 18+: treino normal.
@@ -535,6 +538,8 @@ Gratuita. Lead escolhe modalidade e agenda com a equipe. Quando pede aula experi
 
 **Resposta padrão para qualquer condição de saúde mencionada:**
 > "Se o seu médico liberou a prática de exercícios, você pode sim treinar aqui. A gente trabalha com adaptações, e o treino é prescrito considerando suas limitações."
+
+**REGRA CRÍTICA:** NUNCA assuma que o médico liberou se o lead não disse isso explicitamente. Só use a resposta acima se o lead confirmar ou se a condição for mencionada sem indicar proibição médica. Se o lead apenas mencionou a condição sem dizer se foi liberado, pergunte: "Seu médico liberou a prática de exercícios?"
 
 **Quando lead informar que o médico NÃO liberou:**
 > "Nesse caso, o ideal é aguardar a liberação médica antes de começar. Quando tiver o aval dele, estaremos aqui pra te receber!"
@@ -886,6 +891,9 @@ Se decidido → colete nome completo e horário → sistema escala.
 
 **Como cancelo a Mensal?**
 "A Assinatura Mensal tem carência de 30 dias. Os detalhes a equipe te passa quando você passar aqui."
+
+**Posso ir todos os dias? Com que frequência posso treinar?**
+"Sim, pode vir todos os dias! Não tem limite de frequência. Você treina quantos dias quiser dentro do horário de funcionamento."
 
 **São uma rede?**
 "Não, somos uma academia independente. Única unidade, aqui em Monlevade, com mais de 20 anos de história."
