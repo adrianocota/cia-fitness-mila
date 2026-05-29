@@ -15,7 +15,7 @@ import {
   reativarLead,
   gravarLog,
 } from '../services/supabase.js';
-import { gerarResposta, detectarEscalacao } from '../services/openai.js';
+import { gerarResposta, detectarEscalacao, detectarAmbiguidade } from '../services/openai.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
 import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
@@ -429,6 +429,18 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
+
+  // Ambiguidade — pergunta de esclarecimento antes de responder (GPT-based, genérico)
+  const perguntaEsclarecimento = await detectarAmbiguidade({ historico: historicoFormatado, mensagemNova: conteudo });
+  if (perguntaEsclarecimento) {
+    try {
+      await enviarTexto(phone, perguntaEsclarecimento);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: perguntaEsclarecimento });
+    } catch (error) {
+      console.error('❌ Erro ao enviar pergunta de esclarecimento:', error.message);
+    }
+    return;
+  }
 
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
