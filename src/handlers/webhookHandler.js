@@ -25,7 +25,7 @@ const TABELA_PLANOS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/o
 const TABELA_COMPLETA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/compare%20os%20planos.png';
 const QUADRO_AULAS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/Quadro%20de%20Horario%20NOVO.png';
 
-const TEXTO_TABELA_PLANOS = 'A Assinatura Mensal é R$ 149/mês, sem fidelidade, com acesso livre a musculação e aulas coletivas. A Assinatura Anual é R$ 119/mês, horário livre, aulas coletivas e consulta nutricional inclusa, sem taxa de adesão. Qual delas faz mais sentido pra você?';
+const TEXTO_TABELA_PLANOS = 'A Assinatura Mensal é R$ 149/mês, sem fidelidade, com acesso livre a musculação e aulas coletivas, avaliação física inclusa e adesão de R$ 69. A Assinatura Anual é R$ 119/mês, horário livre, aulas coletivas, avaliação física e consulta nutricional inclusas, sem taxa de adesão. Qual delas faz mais sentido pra você?';
 const TEXTO_TABELA_COMPLETA = 'Aqui tá a comparação completa entre todos os planos. Qual deles faz mais sentido pro seu perfil?';
 const TEXTO_QUADRO_AULAS = 'Aqui tá a grade fixa das aulas coletivas Fast Training. São aulas de 30 minutos, alta intensidade. Você pode fazer mais de uma por dia.';
 const TEXTO_REENVIO_QUADRO = 'Já te enviei o quadro de aulas antes. Quer que eu mande novamente?';
@@ -438,7 +438,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // Guard: pergunta sobre personal trainer — pula detectores de plano, deixa GPT responder
-  const TERMOS_PERSONAL = /(personal\s*train|personal\s*trainer|personal trainer)/i;
+  const TERMOS_PERSONAL = /\bpersonal\b/i;
   const ePerguntaPersonal = TERMOS_PERSONAL.test(conteudo);
 
   // Guard: perguntas informativas sobre pagamento não são gatilho de escalada
@@ -565,7 +565,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // Quadro de aulas
-  if (detectarPerguntaAulas(conteudo)) {
+  if (!ePerguntaPersonal && detectarPerguntaAulas(conteudo)) {
     if (!quadroAulasJaFoiEnviado(historicoBruto)) {
       try {
         await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
