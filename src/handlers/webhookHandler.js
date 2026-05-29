@@ -36,7 +36,7 @@ const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande
 // ─── DEBOUNCE — fila de mensagens por número ─────────────────────────────────
 // Quando o lead envia mensagens em sequência rápida (ex: "e o gympass" + "como funciona?"),
 // acumulamos tudo e processamos junto após DEBOUNCE_MS de silêncio.
-const DEBOUNCE_MS = 3500;
+const DEBOUNCE_MS = 2500;
 const filaDebounce = new Map(); // phone -> { conteudos: [], timer, webhookBody }
 
 function agendarProcessamento(phone, conteudo, webhookBody) {
@@ -186,14 +186,17 @@ function tabelaJaFoiEnviada(historico) {
     m.conteudo === '[tabela planos enviada]' ||
     m.conteudo === '[tabela completa enviada]' ||
     (m.conteudo && m.conteudo.includes('Qual delas faz mais sentido pra você?')) ||
-    (m.conteudo && m.conteudo.includes('Qual deles faz mais sentido pro seu perfil?'))
+    (m.conteudo && m.conteudo.includes('Qual deles faz mais sentido pro seu perfil?')) ||
+    (m.conteudo && m.conteudo.includes('R$ 149/mês')) ||
+    (m.conteudo && m.conteudo.includes('R$ 119/mês'))
   );
 }
 
 function tabelaCompletaJaFoiEnviada(historico) {
   return historico.some((m) =>
     m.conteudo === '[tabela completa enviada]' ||
-    (m.conteudo && m.conteudo.includes('comparação completa entre todos os planos'))
+    (m.conteudo && m.conteudo.includes('comparação completa entre todos os planos')) ||
+    (m.conteudo && m.conteudo.includes('Qual deles faz mais sentido pro seu perfil?'))
   );
 }
 
@@ -514,6 +517,22 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
     } catch (error) {
       console.error('❌ Erro ao reenviar fluxograma:', error.message);
+    }
+    return;
+  }
+
+  // Detector de criança/filho — resposta fixa, nunca GPT
+  const TERMOS_CRIANCA = /(\bfilho\b|\bfilha\b|\bcriança\b|\bcrianças\b|\bbebê\b|\bbebe\b|\bbaby\b)/i;
+  if (TERMOS_CRIANCA.test(conteudo)) {
+    const eBebe = /(\bbebê\b|\bbebe\b|\bbaby\b)/i.test(conteudo);
+    const respostaCrianca = eBebe
+      ? 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!'
+      : 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.';
+    try {
+      await enviarTexto(phone, respostaCrianca);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaCrianca });
+    } catch (error) {
+      console.error('❌ Erro ao enviar resposta de criança:', error.message);
     }
     return;
   }
