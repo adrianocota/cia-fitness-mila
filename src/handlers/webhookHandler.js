@@ -183,12 +183,18 @@ function detectarConfirmacaoReenvio(texto) {
 
 function tabelaJaFoiEnviada(historico) {
   return historico.some((m) =>
-    m.conteudo === '[tabela planos enviada]' || m.conteudo === '[tabela completa enviada]'
+    m.conteudo === '[tabela planos enviada]' ||
+    m.conteudo === '[tabela completa enviada]' ||
+    (m.conteudo && m.conteudo.includes('Qual delas faz mais sentido pra você?')) ||
+    (m.conteudo && m.conteudo.includes('Qual deles faz mais sentido pro seu perfil?'))
   );
 }
 
 function tabelaCompletaJaFoiEnviada(historico) {
-  return historico.some((m) => m.conteudo === '[tabela completa enviada]');
+  return historico.some((m) =>
+    m.conteudo === '[tabela completa enviada]' ||
+    (m.conteudo && m.conteudo.includes('comparação completa entre todos os planos'))
+  );
 }
 
 function quadroAulasJaFoiEnviado(historico) {
@@ -431,6 +437,10 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     mensagemComContexto = `[CONTEXTO INTERNO: Lead ficou ${dias} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`;
   }
 
+  // Guard: pergunta sobre personal trainer — pula detectores de plano, deixa GPT responder
+  const TERMOS_PERSONAL = /(personal\s*train|personal\s*trainer|personal trainer)/i;
+  const ePerguntaPersonal = TERMOS_PERSONAL.test(conteudo);
+
   // Guard: perguntas informativas sobre pagamento não são gatilho de escalada
   const PERGUNTAS_INFORMATIVAS = [
     /pix.{0,30}(anual|inteiro|vista)/i,
@@ -580,7 +590,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   const pedidoComparacao = detectarPedidoComparacaoCompleta(conteudo);
   const todosPlanosCitados = todosOsPlanosCitados(historicoBruto);
 
-  if ((pedidoComparacao || todosPlanosCitados) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
+  if (!ePerguntaPersonal && (pedidoComparacao || todosPlanosCitados) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
     console.log(`📊 Enviando tabela completa.`);
     try {
       await enviarImagem(phone, TABELA_COMPLETA_URL, ' ');
@@ -594,7 +604,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // Tabela básica
-  if (detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
+  if (!ePerguntaPersonal && detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
     console.log(`📋 Enviando tabela básica de planos.`);
     try {
       await enviarImagem(phone, TABELA_PLANOS_URL, ' ');
