@@ -131,7 +131,7 @@ function detectarPerguntaFluxo(texto) {
 }
 
 const TERMOS_PLANOS = /(plano|planos|mensalidade|mensalidades|preç|valor|valores|diferen|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i;
-const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|to interessad|estou interessad|sobre|me explica|como funciona|diferen[çc]|diferente|entre os|entre eles|compara|comparar|qual|quanto|o que muda|o que inclui)/i;
+const INDICADORES_PEDIDO = /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|me conta|conta sobre|fala sobre|fala dos|fala das|fala do|fala da|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|to interessad|estou interessad|sobre|me explica|como funciona|diferen[çc]|diferente|entre os|entre eles|compara|comparar|qual|quanto|o que muda|o que inclui)/i;
 const TERMOS_GRADE_AULAS = /(quadro.{0,20}hor|grade.{0,20}hor|hor[aá]rio.{0,20}aula|hor[aá]rio.{0,20}coletiv|quadro.{0,20}aula|ver.{0,20}quadro|manda.{0,20}quadro|envia.{0,20}quadro|quarto.{0,20}hor)/i;
 
 function detectarPerguntaPlanos(texto) {
