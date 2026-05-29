@@ -36,7 +36,7 @@ const TEXTO_REENVIO_FLUXO = 'Já te enviei o fluxograma antes. Quer que eu mande
 // ─── DEBOUNCE — fila de mensagens por número ─────────────────────────────────
 // Quando o lead envia mensagens em sequência rápida (ex: "e o gympass" + "como funciona?"),
 // acumulamos tudo e processamos junto após DEBOUNCE_MS de silêncio.
-const DEBOUNCE_MS = 4500;
+const DEBOUNCE_MS = 3500;
 const filaDebounce = new Map(); // phone -> { conteudos: [], timer, webhookBody }
 
 function agendarProcessamento(phone, conteudo, webhookBody) {
@@ -430,17 +430,9 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
-  // Ambiguidade — pergunta de esclarecimento antes de responder (GPT-based, genérico)
-  const perguntaEsclarecimento = await detectarAmbiguidade({ historico: historicoFormatado, mensagemNova: conteudo });
-  if (perguntaEsclarecimento) {
-    try {
-      await enviarTexto(phone, perguntaEsclarecimento);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: perguntaEsclarecimento });
-    } catch (error) {
-      console.error('❌ Erro ao enviar pergunta de esclarecimento:', error.message);
-    }
-    return;
-  }
+  // Ambiguidade — DESATIVADO temporariamente (prompt precisa de mais calibração)
+  // const perguntaEsclarecimento = await detectarAmbiguidade({ historico: historicoFormatado, mensagemNova: conteudo });
+  // if (perguntaEsclarecimento) { ... }
 
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
