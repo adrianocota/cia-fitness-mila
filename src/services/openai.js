@@ -5,6 +5,8 @@ const openai = new OpenAI({
   apiKey: config.openai.apiKey,
 });
 
+// ─── GERAR RESPOSTA ───────────────────────────────────────────────────────────
+
 export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -32,6 +34,8 @@ export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
     throw error;
   }
 }
+
+// ─── CLASSIFICAR MENSAGEM DE FOLLOW-UP ───────────────────────────────────────
 
 export async function classificarResposta(mensagemDoLead) {
   const prompt = `Você é um classificador de mensagens. Analise a mensagem abaixo de um lead de uma academia e classifique em UMA dessas 3 categorias:
@@ -71,42 +75,65 @@ Responda APENAS com a palavra da categoria (sem aspas, sem explicação):`;
   }
 }
 
+// ─── DETECTAR ESCALAÇÃO ───────────────────────────────────────────────────────
+// REGRA GERAL: só escala quando o gatilho for CLARO e EXPLÍCITO.
+// Em caso de dúvida, a resposta correta é NAO.
+
 export async function detectarEscalacao({ historico, mensagemNova }) {
   const prompt = `Você analisa conversas entre lead e atendente virtual de uma academia. Decida se essa conversa deve ser transferida pra atendente humano AGORA.
 
-CONTEXTO IMPORTANTE:
-Leads de academia frequentemente chegam dizendo "quero fazer academia", "quero treinar", "quero me matricular", "quero começar" logo na primeira mensagem. Isso é comportamento NORMAL de entrada e NÃO é gatilho de transferência. A atendente virtual deve qualificar o lead primeiro antes de transferir.
+REGRA GERAL: só responda SIM quando o gatilho for CLARO e EXPLÍCITO. Em caso de dúvida, responda NAO. A atendente virtual sabe responder a grande maioria das perguntas.
 
-GATILHOS REAIS DE TRANSFERÊNCIA (responda "SIM" apenas se um desses acontecer de forma clara e explícita):
-- Lead pediu explicitamente pra falar com pessoa humana ("quero falar com alguém", "passa pra atendente", "me liga", "quero falar com a recepção")
-- Lead quer agendar visita com hora marcada específica E confirmou que já decidiu ("posso ir amanhã às 15h pra me matricular")
-- Lead manifestou intenção clara de fechar agora e perguntou como pagar ("como faço o pagamento?", "qual o link pra matricular?", "posso pagar hoje?", "quero assinar agora")
-- Lead pediu desconto e insistiu mesmo após resposta padrão (segunda vez ou mais)
-- Lead perguntou valor de multa de cancelamento e insistiu (segunda vez ou mais)
-- Lead fez reclamação grave sobre a academia
-- Lead perguntou algo que a atendente virtual claramente não sabe responder
+═══════════════════════════════════════
+GATILHOS REAIS — responda SIM apenas se um desses ocorrer de forma clara:
+═══════════════════════════════════════
 
-NÃO É GATILHO — NUNCA transfira por esses motivos:
-- Lead disse "quero fazer academia", "quero treinar", "quero começar", "quero me matricular" (entrada normal)
-- Lead perguntou qual é o plano mais barato, mais em conta ou mais acessível (é qualificação, não fechamento)
-- Lead perguntou sobre planos, preços, horários, modalidades, estrutura, equipamentos
-- Lead fez objeção simples de preço ou horário
-- Lead disse "vou pensar", "depois falo" ou respostas evasivas
-- Lead mencionou objetivo (emagrecer, ganhar massa) sem pedir agendamento concreto
-- Lead perguntou sobre professores, formação, estagiários, equipamentos, vestiário, estacionamento
-- Lead está no início da conversa (primeiras 1-3 mensagens)
-- Lead mencionou condição de saúde (hérnia, lesão, diabetes, hipertensão, miocardite, gravidez) — a atendente sabe responder
-- Lead é idoso e mencionou a idade — a atendente sabe acolher
-- Lead tem vergonha, medo de começar, ou baixa autoestima — a atendente deve acolher
-- Lead mencionou evento de vida difícil (luto, perda de familiar, perda de pet, separação) — a atendente deve acolher
-- Lead perguntou sobre período de teste, semana experimental, dias de graça — a atendente oferece dayuse e aula experimental
-- Lead perguntou sobre agendamento de avaliação sem confirmar decisão de matrícula
-- Lead pergunta se pode pagar no dinheiro ou Pix (primeira vez) — a atendente informa que mensal é só no cartão
-- Lead perguntou sobre pagamento à vista, Pix ou dinheiro no plano anual — a atendente responde com o valor e desconto
-- Lead perguntou sobre Gympass, Totalpass, o que está incluso, valor, como funciona — a atendente sabe responder
-- Lead perguntou sobre cartão de outra pessoa — a atendente informa que pode com CPF do titular
-- Lead perguntou sobre trancamento do plano — a atendente sabe responder
-- Lead perguntou o que é TP2, Gympass Silver, ou qualquer detalhe dos convênios — a atendente sabe responder
+1. Lead pediu EXPLICITAMENTE pra falar com humano: "quero falar com alguém", "passa pra atendente", "me liga", "quero falar com a recepção", "fala com humano"
+2. Lead quer agendar visita com hora marcada E confirmou que já decidiu matricular: "posso ir amanhã às 15h pra me matricular"
+3. Lead manifestou intenção clara de fechar AGORA e perguntou como pagar: "como faço o pagamento?", "quero assinar agora", "pode me passar o link pra matricular?", "posso pagar hoje?"
+4. Lead pediu desconto e INSISTIU pela segunda vez ou mais (após já ter recebido resposta padrão)
+5. Lead perguntou valor de multa de cancelamento e INSISTIU pela segunda vez ou mais
+6. Reclamação grave sobre a academia (não sobre o atendimento virtual)
+7. Lead cadeirante ou com necessidade especial de acessibilidade
+8. Lead pediu aula experimental E informou disponibilidade de horário concreto
+9. Lead disse que quer treinar SÓ um mês
+10. Lead confirmou que NÃO tem nem R$ 119 disponível no cartão
+11. Lead insistiu pela segunda vez que quer pagar o plano mensal no dinheiro (após já ter recebido explicação)
+
+═══════════════════════════════════════
+NÃO SÃO GATILHOS — nunca transfira por esses motivos:
+═══════════════════════════════════════
+
+SAUDAÇÕES E ABERTURAS (a atendente responde com abertura padrão):
+- "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"
+- "ola mila", "oi mila", "vamos conversar", "tô aqui", "oi tudo bem?"
+- Qualquer mensagem de saudação genérica na abertura da conversa
+
+INTENÇÕES GENÉRICAS DE ENTRADA (qualificação normal):
+- "quero fazer academia", "quero treinar", "quero começar", "quero me matricular"
+- "quero saber mais", "me passa informações", "pode me ajudar?"
+- Lead nas primeiras 1-3 mensagens da conversa
+
+PERGUNTAS QUE A ATENDENTE SABE RESPONDER:
+- Planos, preços, valores, mensalidades, diferenças entre planos
+- Horários de funcionamento, horários de aulas, quadro de modalidades
+- Estrutura, equipamentos, vestiário, armários, estacionamento, bicicletário
+- Formas de pagamento (cartão, Pix, dinheiro, boleto, cheque) — primeira vez
+- Gympass, Totalpass, convênios — qualquer pergunta
+- Trancamento de plano, como funciona, quantos dias
+- Cancelamento, carência, multa — primeira vez
+- Avaliação física, consulta nutricional, dayuse, personal trainer
+- Condições de saúde (hérnia, lesão, diabetes, hipertensão, gravidez, etc.)
+- Idade, vergonha, medo de começar
+- Luto, perda de familiar — a atendente acolhe
+- Período de teste, semana experimental — a atendente oferece dayuse e aula experimental
+- Cartão de outra pessoa — a atendente informa que pode com CPF do titular
+- Objeção de preço (achar caro) — a atendente apresenta alternativas
+- Preocupação com compromisso de 12 meses — a atendente explica trancamento
+- Lead está avaliando opções ou comparando academias
+- Qualquer pergunta que a atendente possa responder com base nas informações da academia
+
+═══════════════════════════════════════
 
 Últimas mensagens da conversa:
 ${historico.slice(-10).map((m) => (m.role === 'user' ? 'Lead' : 'Mila') + ': ' + m.content).join('\n')}
@@ -130,6 +157,10 @@ MOTIVO: [se SIM, qual gatilho específico ocorreu. Se NAO, deixe em branco]`;
     const motivoMatch = texto.match(/MOTIVO:\s*(.+)/i);
     const motivo = motivoMatch ? motivoMatch[1].trim() : null;
 
+    if (escalar) {
+      console.log(`🚨 Escalação detectada: ${motivo}`);
+    }
+
     return { escalar, motivo };
   } catch (error) {
     console.error('❌ Erro ao detectar escalação:', error.message);
@@ -137,11 +168,13 @@ MOTIVO: [se SIM, qual gatilho específico ocorreu. Se NAO, deixe em branco]`;
   }
 }
 
+// ─── DETECTAR AMBIGUIDADE ─────────────────────────────────────────────────────
+
 export async function detectarAmbiguidade({ historico, mensagemNova }) {
-  // Heurística rápida: mensagens muito curtas ou respostas simples não precisam de checagem
+  // Heurística: mensagens muito curtas ou respostas simples não precisam de checagem
   const limpo = mensagemNova.trim().toLowerCase();
   if (limpo.length < 8) return null;
-  // Respostas simples de confirmação nunca são ambíguas
+
   const respostasSimples = /^(sim|não|nao|ok|tá|ta|claro|pode|quero|anual|mensal|manhã|manha|noite|tarde|s|n)$/i;
   if (respostasSimples.test(limpo)) return null;
 
@@ -162,12 +195,12 @@ Exemplos CLAROS (não perguntar):
 - "ola bom dia" → clara, é saudação
 - "tem personal?" → clara, quer saber sobre personal trainer
 - "tem aulas?" → clara, quer saber sobre aulas coletivas
+- "vamos conversar" → clara, é abertura de conversa
 
 Exemplos AMBÍGUOS (perguntar):
 - "tem aulas com personal?" → ambíguo: quer saber sobre aulas coletivas ou sobre personal trainer?
 - "como funciona o treino e o pagamento?" → ambíguo: dois assuntos distintos ao mesmo tempo
 - "quero saber sobre horários e planos" → ambíguo: dois assuntos ao mesmo tempo
-- "tem desconto e parcelamento?" → pode ser respondido junto, mas se muito diferentes, esclarecer
 
 Histórico recente (para contexto):
 ${historico.slice(-4).map((m) => (m.role === 'user' ? 'Lead' : 'Mila') + ': ' + m.content).join('\n')}
