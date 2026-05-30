@@ -98,6 +98,22 @@ function modalidadeEConfirmada(modalidade) {
   return MODALIDADES_CONFIRMADAS.some((m) => modalidade.includes(m) || m.includes(modalidade));
 }
 
+// Detecta perguntas curtas de horário quando o contexto imediato foi sobre aulas coletivas.
+// Ex: Mila falou de Zumba -> lead perguntou "quais horários?" -> envia quadro, não fala de pico.
+const REGEX_HORARIO_CURTO = /^(quais hor[aá]rios?|que hor[aá]rios?|qual hor[aá]rio|que horas?|quando tem|que dias?|quais dias?|qual dia|como [eé] o hor[aá]rio|tem hor[aá]rio|os hor[aá]rios?)\s*[?!.]?\s*$/i;
+const REGEX_CONTEXTO_COLETIVA = /(jump|combat|zumba|funcional|cardiomix|cardio mix|fast training|aula coletiva|aulas coletivas|modalidade|modalidades|30 minutos)/i;
+
+function ultimaMilaFalouDeColetiva(historico) {
+  const ultima = ultimaSaidaMila(historico);
+  if (!ultima?.conteudo) return false;
+  return REGEX_CONTEXTO_COLETIVA.test(ultima.conteudo);
+}
+
+function isPerguntaCurtaDeHorarioAposColetiva(texto, historico) {
+  if (!texto) return false;
+  return REGEX_HORARIO_CURTO.test(texto.trim()) && ultimaMilaFalouDeColetiva(historico);
+}
+
 function detectarPerguntaAulas(texto) {
   if (!texto) return false;
   if (REGEX.contextoPlan.test(texto)) return false;
@@ -491,7 +507,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 20. Quadro de aulas
-  if (!ePerguntaPersonal && detectarPerguntaAulas(conteudo)) {
+  if (!ePerguntaPersonal && (detectarPerguntaAulas(conteudo) || isPerguntaCurtaDeHorarioAposColetiva(conteudo, historicoBruto))) {
     try {
       if (!quadroAulasJaFoiEnviado(historicoBruto)) {
         await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS);
