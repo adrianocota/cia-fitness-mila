@@ -397,6 +397,7 @@ const SUPABASE_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh5dm1mbXlueWpwb2NkdGpheW1sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTcyODQsImV4cCI6MjA5NDQ3MzI4NH0.Gkohw2QI55v2ht_wJ_HrD9WRN9iWwR_6o-hD0rU3Gjc';
 
 let leads = [];
+const normalizar = s => s === 'ativo' ? 'mila' : (s === 'transferido' ? 'humano' : s);
 let filtroAtivo = 'todos';
 let periodoAtivo = 'hoje';
 let modalLeadId = null;
@@ -493,7 +494,7 @@ function iniciais(nome, tel) {
 }
 
 function eUrgente(lead) {
-  if (lead.status !== 'humano') return false;
+  if (normalizar(lead.status) !== 'humano') return false;
   const horas = (Date.now() - new Date(lead.ultima_interacao_em).getTime()) / 3600000;
   return horas > 4;
 }
@@ -501,14 +502,14 @@ function eUrgente(lead) {
 function filtrarLeads() {
   const q = document.getElementById('busca').value.toLowerCase();
   return leads.filter(l => {
-    const matchFiltro = filtroAtivo === 'todos' || l.status === filtroAtivo;
+    const matchFiltro = filtroAtivo === 'todos' || normalizar(l.status) === filtroAtivo;
     const matchBusca = !q || (l.nome||'').toLowerCase().includes(q) || l.telefone.includes(q);
     return matchFiltro && matchBusca;
   });
 }
 
 function renderBotoes(lead) {
-  const s = lead.status;
+  const s = normalizar(lead.status);
   if (s === 'mila') return `
     <button class="btn btn-blue" onclick="event.stopPropagation();assumir(${lead.id})">Assumir</button>
     <button class="btn btn-red" onclick="event.stopPropagation();atualizarStatus(${lead.id},'encerrado')">Encerrar</button>`;
@@ -537,7 +538,7 @@ function renderLead(lead) {
     <div class="lead-middle">
       <div class="lead-nome-row">
         <span class="lead-nome${temNome?'':' sem-nome'}">${temNome ? lead.nome : 'sem nome'}</span>
-        <span class="pill pill-${lead.status}">${statusLabel(lead.status)}</span>
+        <span class="pill pill-${normalizar(lead.status)}">${statusLabel(normalizar(lead.status))}</span>
         ${urgente ? '<span class="pill pill-urgente">urgente</span>' : ''}
       </div>
       <div class="lead-sub">
@@ -578,7 +579,7 @@ function renderLista() {
 }
 
 function renderContadores() {
-  const cnt = s => leads.filter(l=>l.status===s).length;
+  const cnt = s => leads.filter(l=>normalizar(l.status)===s).length;
   document.getElementById('cnt-mila').textContent = cnt('mila');
   document.getElementById('cnt-humano').textContent = cnt('humano');
   document.getElementById('cnt-agendado').textContent = cnt('agendado');
