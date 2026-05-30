@@ -114,16 +114,37 @@ function isPerguntaCurtaDeHorarioAposColetiva(texto, historico) {
   return REGEX_HORARIO_CURTO.test(texto.trim()) && ultimaMilaFalouDeColetiva(historico);
 }
 
-// Negações sobre modalidades não devem disparar o quadro de aulas.
-// Ex: "vcs não tem aula de spinning?" deve ser tratado pelo detector de modalidade, não pelo quadro.
-const REGEX_NEGACAO_MODALIDADE = /(n[aã]o tem|n[aã]o t[eê]m|n[aã]o [eé]|sem aula|n[aã]o oferece|n[aã]o h[aá]|n[aã]o possui).{0,30}(aula|modalidade|jump|combat|zumba|funcional|cardiomix|spinning|pilates|yoga|crossfit|muay|boxe|step|hiit)/i;
-const REGEX_MODALIDADE_NEGADA = /(aula|modalidade|jump|combat|zumba|funcional|cardiomix|spinning|pilates|yoga|crossfit|muay|boxe|step|hiit).{0,30}(n[aã]o tem|n[aã]o t[eê]m|n[aã]o [eé]|n[aã]o oferece|n[aã]o h[aá]|n[aã]o possui)/i;
+// Negações sobre aulas não devem disparar o quadro.
+const REGEX_NEGACAO_AULA = /n[aã]o\s+tem|n[aã]o\s+t[eê]m|n[aã]o\s+[eé]|sem\s+aula|n[aã]o\s+oferece|n[aã]o\s+h[aá]|n[aã]o\s+possui/i;
+
+// Extrai a modalidade de uma pergunta "tem aula de X?" / "vocês têm X?"
+const REGEX_EXTRAIR_MODALIDADE = /(?:tem\s+aula\s+de|aula\s+de|aulas?\s+de|modalidade\s+de)\s+([a-záàâãéêíóôõúüçñ][a-záàâãéêíóôõúüçñ\s]{1,25}?)\s*[?!.]?\s*$/i;
+
+// Modalidades confirmadas como texto para checagem
+const MODALIDADES_CONFIRMADAS_TEXTO = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
+
+function perguntaSobreModalidadeNaoConfirmada(texto) {
+  // Negações saem direto — o bloco 18 trata
+  if (REGEX_NEGACAO_AULA.test(texto)) return false;
+  const match = REGEX_EXTRAIR_MODALIDADE.exec(texto.toLowerCase().trim());
+  if (!match) return false;
+  const modalidadePerguntada = match[1].trim();
+  // Se é modalidade confirmada, deixa o quadro de aulas responder normalmente
+  const eConfirmada = MODALIDADES_CONFIRMADAS_TEXTO.some((m) =>
+    modalidadePerguntada.includes(m) || m.includes(modalidadePerguntada)
+  );
+  // Se é coletiva genericamente, deixa o quadro responder
+  if (/coletiv/.test(modalidadePerguntada)) return false;
+  return !eConfirmada;
+}
 
 function detectarPerguntaAulas(texto) {
   if (!texto) return false;
   if (REGEX.contextoPlan.test(texto)) return false;
-  // Se a mensagem é uma negação sobre modalidade, deixa o detector de modalidade tratar
-  if (REGEX_NEGACAO_MODALIDADE.test(texto) || REGEX_MODALIDADE_NEGADA.test(texto)) return false;
+  // Negações não disparam quadro
+  if (REGEX_NEGACAO_AULA.test(texto)) return false;
+  // "tem aula de X?" onde X não é modalidade confirmada → GPT responde, não quadro
+  if (perguntaSobreModalidadeNaoConfirmada(texto)) return false;
   return REGEX.termosAulas.test(texto) && REGEX.indicadoresGrade.test(texto);
 }
 
@@ -487,18 +508,24 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 18. Modalidade não confirmada
+  // 18. Modalidade não confirmada (lista conhecida) ou modalidade desconhecida
   const modalidadeMencionada = detectarModalidadeMencionada(conteudo);
   if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
+    // Modalidade está na lista mas não é confirmada (spinning, pilates, yoga, etc.)
     console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
-    const nome = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
-    const resposta = `${nome} não temos. Nossas aulas coletivas são Jump, Combat, Zumba, Funcional e CardioMix, todas em formato Fast Training de 30 minutos. Quer que eu envie o quadro de horários?`;
+    const nomeModal = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
+    const resposta = `${nomeModal} não temos. Nossas aulas coletivas são Jump, Combat, Zumba, Funcional e CardioMix, todas em formato Fast Training de 30 minutos. Quer que eu envie o quadro de horários?`;
     try {
       await enviarTexto(phone, resposta);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
     } catch (error) { console.error('❌ Erro ao enviar resposta modalidade:', error.message); }
     return;
   }
+
+  // 18b. Modalidade completamente desconhecida — "tem aula de X?" onde X não está em nenhuma lista
+  // Nesses casos deixamos o GPT responder usando a base de conhecimento.
+  // O detectarPerguntaAulas já foi bloqueado para esse padrão, então o fluxo chega até o GPT.
+  // Não precisa de bloco extra aqui — o GPT ao final do fluxo trata corretamente.
 
   // 19. Fluxo de alunos
   if (REGEX.fluxo.test(conteudo)) {
