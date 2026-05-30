@@ -114,9 +114,16 @@ function isPerguntaCurtaDeHorarioAposColetiva(texto, historico) {
   return REGEX_HORARIO_CURTO.test(texto.trim()) && ultimaMilaFalouDeColetiva(historico);
 }
 
+// Negações sobre modalidades não devem disparar o quadro de aulas.
+// Ex: "vcs não tem aula de spinning?" deve ser tratado pelo detector de modalidade, não pelo quadro.
+const REGEX_NEGACAO_MODALIDADE = /(n[aã]o tem|n[aã]o t[eê]m|n[aã]o [eé]|sem aula|n[aã]o oferece|n[aã]o h[aá]|n[aã]o possui).{0,30}(aula|modalidade|jump|combat|zumba|funcional|cardiomix|spinning|pilates|yoga|crossfit|muay|boxe|step|hiit)/i;
+const REGEX_MODALIDADE_NEGADA = /(aula|modalidade|jump|combat|zumba|funcional|cardiomix|spinning|pilates|yoga|crossfit|muay|boxe|step|hiit).{0,30}(n[aã]o tem|n[aã]o t[eê]m|n[aã]o [eé]|n[aã]o oferece|n[aã]o h[aá]|n[aã]o possui)/i;
+
 function detectarPerguntaAulas(texto) {
   if (!texto) return false;
   if (REGEX.contextoPlan.test(texto)) return false;
+  // Se a mensagem é uma negação sobre modalidade, deixa o detector de modalidade tratar
+  if (REGEX_NEGACAO_MODALIDADE.test(texto) || REGEX_MODALIDADE_NEGADA.test(texto)) return false;
   return REGEX.termosAulas.test(texto) && REGEX.indicadoresGrade.test(texto);
 }
 
