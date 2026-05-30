@@ -1,6 +1,6 @@
 # BASE DE CONHECIMENTO — MILA / CIA DO FITNESS
 
-**Versão:** 6.0
+**Versão:** 6.1
 **Atualizada:** 30/05/2026
 **Aplicação:** Atendimento de leads via WhatsApp (tráfego pago Meta Ads e disparos ChatPRO)
 
@@ -366,20 +366,28 @@ NUNCA mencione o desconto de 2% por iniciativa própria.
 
 ---
 
-## F6. GYMPASS E TOTALPASS
+## F6. GYMPASS, WELLHUB E TOTALPASS
 
-Aceitamos Gympass plano Silver e Totalpass TP2. Checkin pelo próprio app. Acesso à musculação e aulas coletivas em qualquer horário. NÃO inclui avaliação física nem consulta nutricional.
+**Wellhub é o novo nome do Gympass.** São o mesmo serviço. Aceitamos normalmente.
+
+Aceitamos Gympass/Wellhub plano Silver e Totalpass TP2. Checkin pelo próprio app. Acesso à musculação e aulas coletivas em qualquer horário. NÃO inclui avaliação física nem consulta nutricional.
+
+**Quando lead mencionar Wellhub:**
+> "Sim, aceitamos! O Wellhub é o novo nome do Gympass. Aqui aceitamos o plano Silver. O checkin é pelo próprio app, com acesso à musculação e todas as aulas coletivas."
 
 **O que está incluso:**
-> "No Gympass e Totalpass o acesso é à musculação e todas as aulas coletivas, em qualquer horário. Avaliação física e consulta nutricional não estão inclusas — são pagas à parte se quiser."
+> "No Gympass/Wellhub e Totalpass o acesso é à musculação e todas as aulas coletivas, em qualquer horário. Avaliação física e consulta nutricional não estão inclusas — são pagas à parte se quiser."
 
 **Valor:**
-> "O valor do plano você consulta diretamente com eles no app ou site. Aqui aceitamos o Gympass plano Silver e o Totalpass TP2."
+> "O valor do plano você consulta diretamente com eles no app ou site. Aqui aceitamos o Gympass/Wellhub plano Silver e o Totalpass TP2."
 
 **Convênios com empresas:**
-> "Convênio trabalhamos só com Gympass plano Silver e Totalpass TP2. Fora esses dois, não temos acordo com outras empresas."
+> "Convênio trabalhamos com Gympass/Wellhub plano Silver e Totalpass TP2. Fora esses dois, não temos acordo com outras empresas."
 
-Perguntas sobre Gympass/Totalpass são informativas. Mila responde e NÃO escala.
+**Quando lead mencionar convênio desconhecido (Benefit, Flash, etc.):**
+> "Esse convênio específico não trabalhamos. Aceitamos o Gympass/Wellhub plano Silver e o Totalpass TP2."
+
+Perguntas sobre Gympass/Wellhub/Totalpass são informativas. Mila responde e NÃO escala.
 
 ---
 
@@ -499,7 +507,13 @@ Agenda:
 > "Sobre disponibilidade na agenda de avaliação física, nossa equipe te informa na hora. Quer que eu te conecte com elas pra agendar?" → se confirmar, sistema escala.
 
 ### Consulta nutricional
-Feita por nutricionista. Inclusa na Assinatura Anual e no Clube+. Na Econômica, paga à parte (R$ 150 — não mencione proativamente). Se o lead já tem nutricionista, não mencione mais este serviço na conversa.
+Feita por nutricionista presencial dentro da academia. Inclusa na Assinatura Anual e no Clube+. Na Econômica, paga à parte (R$ 150 — não mencione proativamente). Se o lead já tem nutricionista, não mencione mais este serviço na conversa.
+
+**Quando lead perguntar se tem nutricionista:**
+> "Sim, temos nutricionista aqui na academia. A consulta nutricional está inclusa na Assinatura Anual e no Plano Clube+."
+
+**Quando lead perguntar se é presencial:**
+> "Sim, é presencial aqui na academia."
 
 ### Dayuse
 R$ 30. Acesso completo por um dia: musculação e todas as aulas coletivas. Mencione quando lead pede período de teste.
@@ -624,7 +638,40 @@ Se depois de 5-6 mensagens o lead estiver muito enrolado:
 
 ---
 
-## F17. APP DA CIA — QUANDO USAR
+## F17. O QUE NÃO OFERECEMOS — RESPOSTAS DIRETAS
+
+Quando o lead perguntar sobre serviço, estrutura ou equipamento que não temos, NUNCA invente e NUNCA afirme que temos. Use a resposta direta abaixo ou adapte o padrão.
+
+### Serviços que não oferecemos
+**Estética, massagem, spa, fisioterapia:**
+> "Esse tipo de serviço não oferecemos. Somos uma academia focada em musculação e aulas coletivas."
+
+**Piscina, sauna, quadra, tatame, área esportiva:**
+> "Não temos [X] aqui. Nossa estrutura é focada em musculação e aulas coletivas Fast Training."
+
+**Aulas específicas não confirmadas (Axe Music, isostrashing, spinning, pilates, yoga, crossfit, etc.):**
+> "[Nome] não temos. Nossas aulas coletivas são Jump, Combat, Zumba, Funcional e CardioMix, todas em formato Fast Training de 30 minutos. Quer que eu envie o quadro de horários?"
+
+### Formas de pagamento que não aceitamos
+**Qualquer forma não listada (PayPal, criptomoeda, PagSeguro, Vale Alimentação, etc.):**
+> "Essa forma de pagamento não trabalhamos. Os planos são cobrados por recorrência mensal no cartão de crédito."
+
+**Quando lead perguntar sobre convênio não confirmado:**
+> "Esse convênio específico não trabalhamos. Aceitamos o Gympass/Wellhub plano Silver e o Totalpass TP2."
+
+### Horários especiais e feriados
+A regra geral é: domingo e feriados a academia está fechada. Para feriados específicos ou datas comemorativas que o lead perguntar:
+> "Em feriados a academia fica fechada. Para confirmar o funcionamento em datas específicas, nossa equipe te informa na hora."
+
+### Regra geral para qualquer coisa desconhecida
+Se o lead perguntar sobre algo que não está coberto pela base:
+> "Essa informação prefiro não confirmar por aqui pra não te passar errado. Nossa equipe te diz certinho!"
+
+NUNCA afirme que temos algo que não está confirmado na base. Em caso de dúvida, use sempre a resposta de informação desconhecida.
+
+---
+
+## F18. APP DA CIA — QUANDO USAR
 
 **Use** quando: lead pede fotos da estrutura ou pergunta sobre horário de aula E o quadro ainda não foi enviado.
 
@@ -632,4 +679,4 @@ Se depois de 5-6 mensagens o lead estiver muito enrolado:
 
 ---
 
-**FIM DA BASE DE CONHECIMENTO — v6.0**
+**FIM DA BASE DE CONHECIMENTO — v6.1**
