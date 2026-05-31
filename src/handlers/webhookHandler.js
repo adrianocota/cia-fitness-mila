@@ -250,6 +250,20 @@ function diasDeSilencio(lead) {
 
 // ─── ENVIO DE MÍDIA COM TEXTO ─────────────────────────────────────────────────
 
+// ─── SELEÇÃO DE VARIAÇÃO ─────────────────────────────────────────────────────
+// Seleciona a próxima variação de uma lista baseado na última mensagem da Mila.
+// Garante que a mesma resposta nunca seja enviada duas vezes seguidas.
+
+function selecionarVariacao(variacoes, historico) {
+  const ultima = ultimaSaidaMila(historico);
+  const ultimaResposta = ultima?.conteudo || '';
+  const idxUsado = variacoes.findIndex(v => v === ultimaResposta);
+  const proximoIdx = idxUsado >= 0
+    ? (idxUsado + 1) % variacoes.length
+    : 0;
+  return variacoes[proximoIdx];
+}
+
 // ─── REFORMULAÇÃO ANTI-REPETIÇÃO ─────────────────────────────────────────────
 // Verifica se a última mensagem da Mila é similar ao texto que seria enviado.
 // Se sim, pede ao GPT para reformular com outras palavras, mantendo o conteúdo.
@@ -595,19 +609,14 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   );
   if (eMedicamento === 'SIM') {
     console.log('💊 Medicamento detectado — respondendo sem opinar.');
-    // Variações para evitar repetição quando o lead pergunta sobre múltiplos medicamentos
+    // Variações rotativas — usa a última mensagem da Mila para detectar qual já foi usada
     const variacoesMedicamento = [
       'Sobre medicamentos não tenho como opinar — isso é com o médico. O que posso dizer é que treino e alimentação potencializam muito qualquer tratamento. Quer saber mais sobre como funciona aqui na Cia?',
       'Indicação de medicamento fica com o médico, não comigo. Mas posso dizer que o treino potencializa muito qualquer tratamento. Posso te contar como funciona aqui na Cia?',
       'Esse tipo de orientação só o médico pode dar. O que sei é que academia e alimentação andam bem juntos com qualquer tratamento. Quer saber mais sobre nossos planos?',
       'Não tenho como orientar sobre remédios — isso é especialidade médica. O que a gente faz aqui é o treino, e ele faz muita diferença junto com qualquer acompanhamento. Posso te ajudar com informações sobre a Cia?',
     ];
-    // Conta quantas vezes já respondeu sobre medicamento nessa conversa
-    const respostasMedicamento = historicoBruto.filter(m =>
-      m.direcao === 'saida' && m.origem === 'mila' &&
-      m.conteudo && m.conteudo.includes('medicamento')
-    ).length;
-    const resposta = variacoesMedicamento[Math.min(respostasMedicamento, variacoesMedicamento.length - 1)];
+    const resposta = selecionarVariacao(variacoesMedicamento, historicoBruto);
     try {
       await enviarTexto(phone, resposta);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
@@ -654,7 +663,11 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   }
   if (regexDetectouDanca || gptDetectouDanca) {
     console.log('💃 Dança detectada — redirecionando para Zumba.');
-    const resposta = 'Aula de dança específica não temos, mas temos Zumba, que mistura dança e exercício num formato bem animado. São 30 minutos de Fast Training. Quer que eu envie o quadro de horários?';
+    const variacoesDanca = [
+      'Aula de dança específica não temos, mas temos Zumba, que mistura dança e exercício num formato bem animado. São 30 minutos de Fast Training. Quer que eu envie o quadro de horários?',
+      'Dança específica não oferecemos, mas a Zumba tem bastante esse elemento — é animada e mistura ritmo com exercício. Quer que eu envie o quadro de horários?',
+    ];
+    const resposta = selecionarVariacao(variacoesDanca, historicoBruto);
     try {
       await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
     } catch (error) { console.error('❌ Erro ao enviar resposta dança:', error.message); }
