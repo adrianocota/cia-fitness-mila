@@ -612,25 +612,32 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
     'SIM = menciona medicamento de emagrecimento, remédio, injeção, tratamento, droga, substância. Ex: Ozempic, Manjaro, Wegovy, Mounjaro, Saxenda, semaglutida, sibutramina, qualquer nome de remédio. NAO = qualquer outra coisa.'
   );
   if (eMedicamento === 'SIM') {
-    console.log('💊 Medicamento detectado — respondendo sem opinar.');
-    // Variações rotativas — usa a última mensagem da Mila para detectar qual já foi usada
-    const variacoesMedicamento = [
-      'Sobre medicamentos não tenho como opinar — isso é com o médico. O que posso dizer é que treino e alimentação potencializam muito qualquer tratamento. Quer saber mais sobre como funciona aqui na Cia?',
-      'Indicação de medicamento fica com o médico, não comigo. Mas posso dizer que o treino potencializa muito qualquer tratamento. Posso te contar como funciona aqui na Cia?',
-      'Esse tipo de orientação só o médico pode dar. O que sei é que academia e alimentação andam bem juntos com qualquer tratamento. Quer saber mais sobre nossos planos?',
-      'Não tenho como orientar sobre remédios — isso é especialidade médica. O que a gente faz aqui é o treino, e ele faz muita diferença junto com qualquer acompanhamento. Posso te ajudar com informações sobre a Cia?',
-    ];
-    // Busca especificamente a última resposta de medicamento no histórico
-    const ultimaRespostaMedicamento = historicoBruto
-      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
-        variacoesMedicamento.some(v => m.conteudo.includes(v.slice(0, 40))))
-      .slice(-1)[0]?.conteudo || '';
-    const idxMed = variacoesMedicamento.findIndex(v => ultimaRespostaMedicamento.includes(v.slice(0, 40)));
-    const proximoIdxMed = idxMed >= 0 ? (idxMed + 1) % variacoesMedicamento.length : 0;
-    const resposta = variacoesMedicamento[proximoIdxMed];
+    console.log('💊 Medicamento detectado — gerando resposta via GPT.');
+    // Passa pelo GPT com o histórico completo — ele naturalmente varia a resposta
+    // porque lê o que já disse e não repete. Muito mais robusto que array de variações.
     try {
-      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
-    } catch (error) { console.error('❌ Erro ao enviar resposta medicamento:', error.message); }
+      const respostaMed = await gerarResposta({
+        systemPrompt: `Você é Mila, atendente virtual da Cia do Fitness.
+
+O lead mencionou um medicamento (pode ser Ozempic, Manjaro, Wegovy, Mounjaro, Saxenda, sibutramina ou qualquer outro).
+
+REGRA ABSOLUTA: Você NUNCA opina sobre medicamentos. Não recomenda, não contraindica, não compara.
+
+Sua resposta deve:
+1. Deixar claro que medicamento é assunto do médico, não seu
+2. Mencionar que treino potencializa qualquer tratamento
+3. Abrir porta para falar da Cia
+4. Ser DIFERENTE das respostas anteriores no histórico — leia o histórico e use palavras e estrutura diferentes
+5. Ser curta (2-3 frases no máximo)
+6. Tom natural de WhatsApp`,
+        historico: historicoFormatado,
+        mensagemNova: conteudo,
+      });
+      await enviarTexto(phone, respostaMed);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaMed });
+    } catch (error) {
+      console.error('❌ Erro ao responder medicamento:', error.message);
+    }
     return;
   }
 
