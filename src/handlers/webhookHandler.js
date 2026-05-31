@@ -616,7 +616,14 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
       'Esse tipo de orientação só o médico pode dar. O que sei é que academia e alimentação andam bem juntos com qualquer tratamento. Quer saber mais sobre nossos planos?',
       'Não tenho como orientar sobre remédios — isso é especialidade médica. O que a gente faz aqui é o treino, e ele faz muita diferença junto com qualquer acompanhamento. Posso te ajudar com informações sobre a Cia?',
     ];
-    const resposta = selecionarVariacao(variacoesMedicamento, historicoBruto);
+    // Busca especificamente a última resposta de medicamento no histórico
+    const ultimaRespostaMedicamento = historicoBruto
+      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
+        variacoesMedicamento.some(v => m.conteudo.includes(v.slice(0, 40))))
+      .slice(-1)[0]?.conteudo || '';
+    const idxMed = variacoesMedicamento.findIndex(v => ultimaRespostaMedicamento.includes(v.slice(0, 40)));
+    const proximoIdxMed = idxMed >= 0 ? (idxMed + 1) % variacoesMedicamento.length : 0;
+    const resposta = variacoesMedicamento[proximoIdxMed];
     try {
       await enviarTexto(phone, resposta);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
