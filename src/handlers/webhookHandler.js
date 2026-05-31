@@ -507,7 +507,55 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     perfilLead = await criarPerfilVazio(lead.id);
   }
 
-  // 7. CLASSIFICAÇÃO UNIFICADA — uma única chamada GPT substitui três decisões anteriores:
+  // 7. GUARD DE OFERTA ATIVA — verifica ANTES da classificação unificada
+  // Se havia uma oferta ativa (quadro/tabela/fluxo) e o lead confirmou,
+  // processa o reenvio imediatamente sem passar pela classificação.
+  // Isso evita que "Quero", "sim", "👍" seja interpretado como FECHAR matrícula.
+  {
+    const historicoBrutoGuard = await buscarHistorico(lead.id, 20);
+    const ultimaMilaGuard = ultimaSaidaMila(historicoBrutoGuard);
+    const ultimaMilaTextoGuard = ultimaMilaGuard?.conteudo || '';
+
+    const eOfertaTabelaGuard = ultimaMensagemMilaFoiOfertaDeTabela(historicoBrutoGuard);
+    const eOfertaQuadroGuard = ultimaMensagemMilaFoiOfertaDeQuadro(historicoBrutoGuard);
+    const eOfertaFluxoGuard  = ultimaMensagemMilaFoiOfertaDeFluxo(historicoBrutoGuard);
+
+    if (eOfertaTabelaGuard || eOfertaQuadroGuard || eOfertaFluxoGuard) {
+      const confirmouGuard = await classificarIntencao(
+        conteudo,
+        'O lead está confirmando que quer receber o conteúdo que foi oferecido?',
+        ['SIM', 'NAO', 'INCERTO'],
+        `A Mila ofereceu: "${ultimaMilaTextoGuard.slice(0, 100)}"`
+      );
+      console.log(`🛡️ Guard oferta: ${confirmouGuard} para "${conteudo}"`);
+
+      if (eOfertaTabelaGuard && confirmouGuard === 'SIM') {
+        const usarCompleta = tabelaCompletaJaFoiEnviada(historicoBrutoGuard);
+        try {
+          if (usarCompleta) {
+            await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBrutoGuard);
+          } else {
+            await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBrutoGuard);
+          }
+        } catch (e) { console.error('❌ Guard tabela:', e.message); }
+        return;
+      }
+      if (eOfertaQuadroGuard && confirmouGuard === 'SIM') {
+        try {
+          await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBrutoGuard);
+        } catch (e) { console.error('❌ Guard quadro:', e.message); }
+        return;
+      }
+      if (eOfertaFluxoGuard && confirmouGuard === 'SIM') {
+        try {
+          await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBrutoGuard);
+        } catch (e) { console.error('❌ Guard fluxo:', e.message); }
+        return;
+      }
+    }
+  }
+
+  // 8. CLASSIFICAÇÃO UNIFICADA — uma única chamada GPT substitui três decisões anteriores:
   //    classificarIntencao(fechar/encerrar) + detectarEscalacao + querFecharMatricula
   //    Economiza uma chamada GPT por mensagem e elimina decisões contraditórias.
   const decisao = await classificarIntencao(
