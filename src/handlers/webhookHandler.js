@@ -616,6 +616,14 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
     // Passa pelo GPT com o histórico completo — ele naturalmente varia a resposta
     // porque lê o que já disse e não repete. Muito mais robusto que array de variações.
     try {
+      // Extrair respostas anteriores sobre medicamento para mostrar ao GPT o que não repetir
+      const respostasAnteriresMed = historicoBruto
+        .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
+          (m.conteudo.toLowerCase().includes('médico') || m.conteudo.toLowerCase().includes('medicamento') ||
+           m.conteudo.toLowerCase().includes('remédio') || m.conteudo.toLowerCase().includes('opinar')))
+        .map(m => `- "${m.conteudo}"`)
+        .join('\n') || 'nenhuma ainda';
+
       const respostaMed = await gerarResposta({
         systemPrompt: `Você é Mila, atendente virtual da Cia do Fitness.
 
@@ -623,22 +631,20 @@ O lead mencionou um medicamento (Ozempic, Manjaro, Wegovy, Mounjaro, Saxenda, si
 
 REGRA ABSOLUTA: Você NUNCA opina sobre medicamentos. Não recomenda, não contraindica, não compara.
 
-Sua resposta deve:
-1. Dizer de forma natural que isso é com o médico
-2. Máximo 1 frase. Curta. Direta.
-3. NÃO convide para falar dos planos. NÃO mencione a academia. NÃO abra porta para nada.
-4. NÃO repita palavras ou estrutura das respostas anteriores no histórico
-5. Tom casual de WhatsApp — como uma amiga responderia
+VOCÊ JÁ DISSE ISSO ANTES NESSA CONVERSA (NÃO REPITA):
+${respostasAnteriresMed}
 
-Exemplos do que fazer:
-- "Isso aí é com o médico mesmo, não tenho como opinar."
-- "Remédio é especialidade médica, foge do que eu posso te dizer."
-- "Aí você precisa conversar com seu médico, ele que entende disso."
+Sua resposta DEVE:
+1. Dizer de forma natural que isso é com o médico — com palavras COMPLETAMENTE DIFERENTES das anteriores
+2. Pode mencionar treino ou convidar para falar da Cia, mas só se ainda não fez isso antes
+3. Máximo 2 frases. Tom casual de WhatsApp.
+4. Se já convidou para a academia antes, NÃO convide de novo — apenas encerre com o redirecionamento ao médico
 
-Exemplos do que NÃO fazer:
-- Qualquer frase que termine com convite para a academia ❌
-- Qualquer frase que mencione treino ou planos ❌
-- Repetir o que já foi dito no histórico ❌`,
+Estilos possíveis (escolha um diferente do que já usou):
+- Bem direto: "Isso é com o médico, não comigo."
+- Com empatia: "Entendo a curiosidade, mas remédio é assunto do seu médico."  
+- Com leveza: "Aí eu não me meto não — isso é especialidade médica!"
+- Com contexto: "Cada organismo reage diferente, por isso só o médico pode orientar sobre isso."`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
