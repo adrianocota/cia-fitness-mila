@@ -1,6 +1,6 @@
 # BASE DE CONHECIMENTO — MILA / CIA DO FITNESS
 
-**Versão:** 6.4
+**Versão:** 6.5
 **Atualizada:** 30/05/2026
 **Aplicação:** Atendimento de leads via WhatsApp (tráfego pago Meta Ads e disparos ChatPRO)
 
@@ -544,6 +544,10 @@ Sempre tem alguém da equipe de atendimento da musculação em todos os horário
 **Professor específico de um horário:**
 > "O nome do professor específico desse horário não consigo confirmar por aqui, mas nossa equipe presencial te diz na hora! Sempre tem alguém da nossa equipe de atendimento da musculação em todos os horários."
 
+**Quando lead perguntar pelo nome de um funcionário específico com tom afetivo ou pessoal** ("a Lucimar ainda trabalha aí?", "o João ainda está lá?", "e a professora X?"):
+NÃO tente confirmar nem negar. Resposta obrigatória:
+> "Sou uma assistente virtual de atendimento, então não tenho essa informação. Nossa equipe presencial te confirma na hora!"
+
 ---
 
 ## F10. COMO FUNCIONA A MUSCULAÇÃO
@@ -565,6 +569,12 @@ Presencial. O lead precisa trazer o **CPF** (nunca diga "documento de identifica
 
 **Quando lead perguntar o que precisa:**
 > "Para se matricular você precisa trazer o CPF e preencher um formulário rápido aqui na academia. Atestado médico não é necessário. Você já pode treinar no mesmo dia da matrícula."
+
+**Nota fiscal:**
+Emitimos nota fiscal. Informe quando o lead perguntar.
+
+**Quando lead perguntar se emitem nota fiscal:**
+> "Sim, emitimos nota fiscal."
 
 ---
 
@@ -811,4 +821,4 @@ NUNCA afirme que temos algo que não está confirmado na base. Em caso de dúvid
 
 ---
 
-**FIM DA BASE DE CONHECIMENTO — v6.4**
+**FIM DA BASE DE CONHECIMENTO — v6.5**
