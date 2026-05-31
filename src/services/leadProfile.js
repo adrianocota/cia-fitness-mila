@@ -82,14 +82,34 @@ export async function extrairEAtualizarPerfil(leadId, historico) {
     .map((m) => (m.role === 'user' ? 'Lead' : 'Mila') + ': ' + m.content)
     .join('\n');
 
-  const prompt = `Analise este trecho de conversa entre a Mila (atendente) e um lead de academia.
-Extraia APENAS informações que o lead revelou EXPLICITAMENTE. Não suponha nada.
+  const prompt = `Você é um extrator de dados ESTRITO. Sua única função é identificar o que o LEAD disse EXPLICITAMENTE.
 
-Conversa:
+REGRAS ABSOLUTAS:
+1. Use null para TUDO que o lead não disse com palavras claras.
+2. NUNCA infira, suponha ou interprete além do que foi dito literalmente.
+3. Perguntar sobre algo NÃO significa ter interesse naquilo. Ex: lead perguntou sobre Gympass → tem_gympass = null (não sabemos se tem). Só marque true se o lead DISSE "tenho Gympass" ou "uso Gympass".
+4. Horário preferido = null a menos que o lead tenha dito "prefiro manhã", "só posso à noite", "treino de manhã", etc.
+5. Plano de interesse = null a menos que o lead tenha dito "quero o mensal", "prefiro o anual", etc. Perguntar sobre um plano NÃO é interesse.
+6. Nível de interesse: só classifique se o comportamento for claro. Dúvidas e perguntas = "medio". Nunca classifique como "alto" só por perguntar.
+
+EXEMPLOS DO QUE NÃO FAZER:
+- Lead perguntou "vocês aceitam Gympass?" → NÃO marque tem_gympass: true
+- Lead perguntou "qual o horário de manhã?" → NÃO marque horario_preferido: "manhã"
+- Lead disse "quero saber sobre o plano anual" → NÃO marque plano_interesse: "anual"
+- Lead disse "estou pensando em entrar" → NÃO marque nivel_interesse: "alto"
+
+EXEMPLOS DO QUE FAZER:
+- Lead disse "eu tenho Gympass Silver" → tem_gympass: true
+- Lead disse "só posso treinar à noite" → horario_preferido: "noite"
+- Lead disse "quero assinar o anual" → plano_interesse: "anual"
+- Lead disse "to querendo emagrecer" → objetivo: "emagrecer"
+- Lead disse "já treinei aqui antes" → ex_aluno: true
+- Lead disse "tenho hérnia de disco" → restricao_saude: "hérnia de disco"
+
+Conversa para analisar:
 ${textoHistorico}
 
-Responda APENAS com um JSON válido com os campos abaixo. Use null para campos não mencionados.
-Não inclua campos que o lead não mencionou. Não inclua explicações.
+Responda APENAS com JSON válido. Use null para tudo que não foi dito explicitamente.
 
 {
   "objetivo": null,
@@ -116,12 +136,12 @@ Não inclua campos que o lead não mencionou. Não inclua explicações.
 
 Valores possíveis:
 - objetivo: "emagrecer" | "ganhar massa" | "saúde" | "definir" | "condicionamento" | "voltar a treinar"
-- horario_preferido: "manhã" | "tarde" | "noite" | "qualquer"
-- plano_interesse: "mensal" | "anual" | "economica" | "clube" | "gympass" | "totalpass"
-- objecao_principal: "preço" | "compromisso" | "horario" | "saude" | "distancia" | "tempo"
+- horario_preferido: "manhã" | "tarde" | "noite" | "qualquer" — SÓ se o lead disse explicitamente
+- plano_interesse: "mensal" | "anual" | "economica" | "clube" | "gympass" | "totalpass" — SÓ se o lead demonstrou preferência clara
+- objecao_principal: "preço" | "compromisso" | "horario" | "saude" | "distancia" | "tempo" | "atendimento"
 - sentimento_atual: "positivo" | "neutro" | "negativo" | "frustrado" | "desistindo"
 - nivel_interesse: "alto" | "medio" | "baixo"
-- Booleanos: true | false | null`;
+- Booleanos: true | false | null — prefira null quando houver qualquer dúvida`;
 
   try {
     const resposta = await gerarResposta({
