@@ -34,11 +34,11 @@ function getOfertaVigente() {
   return cacheOfertaVigente;
 }
 
-export function montarSystemPrompt() {
+export function montarSystemPrompt(perfilContexto = '') {
   const baseConhecimento = getBaseConhecimento();
   const ofertaVigente = getOfertaVigente();
 
-  return `Você é Mila, atendente virtual da Cia do Fitness. Siga RIGOROSAMENTE as instruções abaixo.
+  return `Você é Mila, atendente virtual da Cia do Fitness. Siga RIGOROSAMENTE as instruções abaixo.${perfilContexto}
 
 ═══════════════════════════════════════════════════════
 BASE DE CONHECIMENTO (informações da Cia, como você se comporta, exemplos de resposta):
