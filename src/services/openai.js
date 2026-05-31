@@ -37,6 +37,51 @@ export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
 
 // ─── CLASSIFICAR MENSAGEM DE FOLLOW-UP ───────────────────────────────────────
 
+// ─── CLASSIFICADOR GENÉRICO DE INTENÇÃO ──────────────────────────────────────
+// Substitui regex em qualquer situação onde o contexto importa mais que a palavra.
+// Cobre emojis (👍), gírias, frases ambíguas, confirmações indiretas, etc.
+// Custo mínimo: max_tokens=5, temperature=0.
+//
+// Uso: classificarIntencao(texto, pergunta, opcoes)
+// Ex: await classificarIntencao("👍", "O lead confirmou?", ["SIM", "NAO", "INCERTO"])
+// Ex: await classificarIntencao("vou pensar", "O lead quer fechar?", ["SIM", "NAO", "TALVEZ"])
+
+export async function classificarIntencao(texto, pergunta, opcoes = ['SIM', 'NAO', 'INCERTO'], contexto = '') {
+  const opcoesStr = opcoes.join(' | ');
+  const prompt = `Analise a mensagem abaixo e responda à pergunta.
+
+${contexto ? 'Contexto: ' + contexto + '\n' : ''}Mensagem: "${texto}"
+
+Pergunta: ${pergunta}
+
+Responda APENAS com uma das opções: ${opcoesStr}
+Sem explicação, sem pontuação, sem aspas.`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: config.openai.model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 10,
+      temperature: 0,
+    });
+
+    const resultado = completion.choices[0]?.message?.content?.trim().toUpperCase();
+    const opcoesUpper = opcoes.map(o => o.toUpperCase());
+
+    if (!opcoesUpper.includes(resultado)) {
+      console.warn(`⚠️ classificarIntencao retornou "${resultado}" fora das opções. Usando "${opcoes[opcoes.length - 1]}".`);
+      return opcoes[opcoes.length - 1]; // última opção = fallback seguro
+    }
+
+    return resultado;
+  } catch (error) {
+    console.error('❌ Erro ao classificar intenção:', error.message);
+    return opcoes[opcoes.length - 1]; // fallback seguro em caso de erro
+  }
+}
+
+// ─── CLASSIFICAR RESPOSTA DE FOLLOW-UP ───────────────────────────────────────
+
 export async function classificarResposta(mensagemDoLead) {
   const prompt = `Você é um classificador de mensagens. Analise a mensagem abaixo de um lead de uma academia e classifique em UMA dessas 3 categorias:
 
