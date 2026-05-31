@@ -273,28 +273,32 @@ async function reformularSeNecessario(textoOriginal, historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return textoOriginal;
 
+  // Comparação exata — sempre reformula se for idêntico
+  const identico = ultima.conteudo.trim() === textoOriginal.trim();
+
+  // Comparação por palavras — reformula se mais de 70% das palavras forem iguais
+  const normalize = (s) => s.toLowerCase().replace(/[^a-záàâãéêíóôõúüç\s]/g, '').trim();
+  const wordsA = new Set(normalize(ultima.conteudo).split(/\s+/));
+  const wordsB = normalize(textoOriginal).split(/\s+/);
+  const matches = wordsB.filter(w => wordsA.has(w)).length;
+  const similaridade = matches / Math.max(wordsA.size, wordsB.length);
+  const muitoSimilar = similaridade > 0.7;
+
+  if (!identico && !muitoSimilar) return textoOriginal;
+
+  console.log(`🔄 Reformulando (${identico ? 'idêntico' : 'similar ' + similaridade.toFixed(2)})`);
+
   try {
-    // Usa GPT para detectar similaridade semântica
-    const resultado = await classificarIntencao(
-      textoOriginal,
-      'Esta mensagem transmite o mesmo conteúdo e significado que a mensagem anterior?',
-      ['SIM', 'NAO'],
-      `Mensagem anterior: "${ultima.conteudo.slice(0, 150)}"`
-    );
-
-    if (resultado !== 'SIM') return textoOriginal;
-    console.log('🔄 Reformulando resposta semanticamente similar...');
-
     const reformulada = await gerarResposta({
-      systemPrompt: `Você é Mila, atendente da Cia do Fitness. Reformule a mensagem abaixo com outras palavras, mantendo exatamente o mesmo conteúdo e informações. Seja natural, breve e no estilo WhatsApp. NUNCA use as mesmas frases da mensagem anterior. Responda APENAS com a mensagem reformulada, sem explicações.
+      systemPrompt: `Você é Mila, atendente da Cia do Fitness. Reformule a mensagem abaixo com outras palavras, mantendo exatamente o mesmo conteúdo e informações. Seja natural, breve e no estilo WhatsApp brasileiro. NUNCA use as mesmas frases da mensagem anterior. Responda APENAS com a mensagem reformulada, sem explicações, sem aspas.
 
-Mensagem anterior que você já enviou:
+Mensagem anterior enviada:
 "${ultima.conteudo}"
 
 Mensagem a reformular:
 "${textoOriginal}"`,
       historico: [],
-      mensagemNova: 'Reformule agora.',
+      mensagemNova: 'Reformule agora com palavras completamente diferentes.',
     });
     return reformulada || textoOriginal;
   } catch (error) {
@@ -625,8 +629,7 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
     const proximoIdxMed = idxMed >= 0 ? (idxMed + 1) % variacoesMedicamento.length : 0;
     const resposta = variacoesMedicamento[proximoIdxMed];
     try {
-      await enviarTexto(phone, resposta);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
+      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
     } catch (error) { console.error('❌ Erro ao enviar resposta medicamento:', error.message); }
     return;
   }
