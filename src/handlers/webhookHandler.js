@@ -419,7 +419,14 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
 
   // 3. Áudio ou imagem — resposta fixa
   if (tipo === 'audio' || tipo === 'imagem') {
-    await enviarTexto(phone, 'Oi! Não consigo ouvir áudios por aqui, mas pode me mandar em texto que te respondo na hora! 😊');
+    const variacoesAudio = [
+      'Oi! Não consigo ouvir áudios por aqui, mas pode me mandar em texto que te respondo na hora! 😊',
+      'Áudios não consigo processar, mas texto funciona perfeitamente! Me manda em texto. 😊',
+      'Por aqui só consigo ler texto — manda sua mensagem escrita que respondo na hora!',
+    ];
+    const respostasAudio = historicoBruto.filter(m => m.conteudo === '[audio]').length;
+    const respostaAudio = variacoesAudio[Math.min(respostasAudio, variacoesAudio.length - 1)];
+    await enviarTexto(phone, respostaAudio);
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo: `[${tipo}]`, tipo });
     return;
   }
@@ -588,9 +595,22 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   );
   if (eMedicamento === 'SIM') {
     console.log('💊 Medicamento detectado — respondendo sem opinar.');
-    const resposta = 'Sobre medicamentos não tenho como opinar — isso é com o médico. O que posso dizer é que treino e alimentação potencializam muito qualquer tratamento. Quer saber mais sobre como funciona aqui na Cia?';
+    // Variações para evitar repetição quando o lead pergunta sobre múltiplos medicamentos
+    const variacoesMedicamento = [
+      'Sobre medicamentos não tenho como opinar — isso é com o médico. O que posso dizer é que treino e alimentação potencializam muito qualquer tratamento. Quer saber mais sobre como funciona aqui na Cia?',
+      'Indicação de medicamento fica com o médico, não comigo. Mas posso dizer que o treino potencializa muito qualquer tratamento. Posso te contar como funciona aqui na Cia?',
+      'Esse tipo de orientação só o médico pode dar. O que sei é que academia e alimentação andam bem juntos com qualquer tratamento. Quer saber mais sobre nossos planos?',
+      'Não tenho como orientar sobre remédios — isso é especialidade médica. O que a gente faz aqui é o treino, e ele faz muita diferença junto com qualquer acompanhamento. Posso te ajudar com informações sobre a Cia?',
+    ];
+    // Conta quantas vezes já respondeu sobre medicamento nessa conversa
+    const respostasMedicamento = historicoBruto.filter(m =>
+      m.direcao === 'saida' && m.origem === 'mila' &&
+      m.conteudo && m.conteudo.includes('medicamento')
+    ).length;
+    const resposta = variacoesMedicamento[Math.min(respostasMedicamento, variacoesMedicamento.length - 1)];
     try {
-      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+      await enviarTexto(phone, resposta);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
     } catch (error) { console.error('❌ Erro ao enviar resposta medicamento:', error.message); }
     return;
   }
