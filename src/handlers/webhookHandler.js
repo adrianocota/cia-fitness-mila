@@ -695,26 +695,69 @@ Estilos possíveis (escolha um diferente do que já usou):
   }
   if (regexDetectouDanca || gptDetectouDanca) {
     console.log('💃 Dança detectada — redirecionando para Zumba.');
-    const variacoesDanca = [
-      'Aula de dança específica não temos, mas temos Zumba, que mistura dança e exercício num formato bem animado. São 30 minutos de Fast Training. Quer que eu envie o quadro de horários?',
-      'Dança específica não oferecemos, mas a Zumba tem bastante esse elemento — é animada e mistura ritmo com exercício. Quer que eu envie o quadro de horários?',
-    ];
-    const resposta = selecionarVariacao(variacoesDanca, historicoBruto);
+    // GPT gera resposta variada — não repete graças ao histórico explícito
+    const respostasDanca = historicoBruto
+      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
+        m.conteudo.toLowerCase().includes('zumba'))
+      .slice(-2)
+      .map(m => `- "${m.conteudo}"`)
+      .join('\n') || 'nenhuma ainda';
+
     try {
-      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+      const respostaDanca = await gerarResposta({
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre aula de dança.
+
+Não temos aulas de dança específicas, mas temos Zumba — que mistura dança e exercício em 30 min de Fast Training.
+
+VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
+${respostasDanca}
+
+Responda com 1-2 frases diferentes das anteriores. Tom casual de WhatsApp.
+Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
+        historico: historicoFormatado,
+        mensagemNova: conteudo,
+      });
+      await enviarTexto(phone, respostaDanca);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaDanca });
     } catch (error) { console.error('❌ Erro ao enviar resposta dança:', error.message); }
     return;
   }
 
-  // 18. Modalidade não confirmada (lista conhecida) ou modalidade desconhecida
+  // 18. Modalidade não confirmada — GPT gera resposta variada com histórico
   const modalidadeMencionada = detectarModalidadeMencionada(conteudo);
   if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
-    // Modalidade está na lista mas não é confirmada (spinning, pilates, yoga, etc.)
     console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
     const nomeModal = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
-    const resposta = `${nomeModal} não temos. Nossas aulas coletivas são Jump, Combat, Zumba, Funcional e CardioMix, todas em formato Fast Training de 30 minutos. Quer que eu envie o quadro de horários?`;
+
+    // Extrair respostas anteriores sobre modalidades para o GPT não repetir
+    const respostasModais = historicoBruto
+      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
+        (m.conteudo.toLowerCase().includes('não temos') || m.conteudo.toLowerCase().includes('não tem')))
+      .slice(-3)
+      .map(m => `- "${m.conteudo}"`)
+      .join('\n') || 'nenhuma ainda';
+
     try {
-      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+      const respostaModal = await gerarResposta({
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre "${nomeModal}" que não oferecemos.
+
+Nossas aulas coletivas são: Jump, Combat, Zumba, Funcional e CardioMix (todas Fast Training, 30 min).
+
+VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA ESSAS FRASES):
+${respostasModais}
+
+Sua resposta deve:
+1. Dizer que não temos ${nomeModal} — com palavras DIFERENTES das respostas anteriores
+2. Mencionar nossas modalidades (mas só se ainda não mencionou antes nessa conversa)
+3. Opcionalmente oferecer o quadro de horários — mas só na primeira vez
+4. Máximo 2 frases. Tom casual de WhatsApp.
+
+Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, sem repetir a lista.`,
+        historico: historicoFormatado,
+        mensagemNova: conteudo,
+      });
+      await enviarTexto(phone, respostaModal);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaModal });
     } catch (error) { console.error('❌ Erro ao enviar resposta modalidade:', error.message); }
     return;
   }
