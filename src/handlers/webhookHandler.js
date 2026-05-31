@@ -259,9 +259,8 @@ async function reformularSeNecessario(textoOriginal, historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return textoOriginal;
 
-  // Usa GPT para detectar similaridade semântica — cobre casos onde palavras são
-  // diferentes mas o conteúdo é o mesmo (ex: "preço fixo" vs "valores tabelados")
   try {
+    // Usa GPT para detectar similaridade semântica
     const resultado = await classificarIntencao(
       textoOriginal,
       'Esta mensagem transmite o mesmo conteúdo e significado que a mensagem anterior?',
@@ -272,7 +271,6 @@ async function reformularSeNecessario(textoOriginal, historico) {
     if (resultado !== 'SIM') return textoOriginal;
     console.log('🔄 Reformulando resposta semanticamente similar...');
 
-  try {
     const reformulada = await gerarResposta({
       systemPrompt: `Você é Mila, atendente da Cia do Fitness. Reformule a mensagem abaixo com outras palavras, mantendo exatamente o mesmo conteúdo e informações. Seja natural, breve e no estilo WhatsApp. NUNCA use as mesmas frases da mensagem anterior. Responda APENAS com a mensagem reformulada, sem explicações.
 
@@ -487,7 +485,7 @@ ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para d
 ESCALAR = lead pediu explicitamente falar com humano, ou quer agendar visita com hora marcada E confirmou decisão, ou insistiu em desconto pela segunda vez.
 CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, reclamações. Em caso de dúvida use CONTINUAR.`
   );
-  console.log(\`🎯 Decisão: \${decisao} para "\${conteudo.slice(0, 50)}"\`);
+  console.log(`🎯 Decisão: ${decisao} para "${conteudo.slice(0, 50)}"`);
 
   // Buscar histórico — necessário para todos os caminhos seguintes
   const historicoBruto = await buscarHistorico(lead.id, 20);
@@ -515,7 +513,7 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
-    mensagemComContexto = \`[CONTEXTO INTERNO: Lead ficou \${Math.floor(silencio)} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: \${conteudo}\`;
+    mensagemComContexto = `[CONTEXTO INTERNO: Lead ficou ${Math.floor(silencio)} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`;
   }
 
   const ePerguntaPersonal    = REGEX.personal.test(conteudo);
