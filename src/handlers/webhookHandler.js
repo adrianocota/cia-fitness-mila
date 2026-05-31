@@ -16,6 +16,7 @@ import {
   gravarLog,
 } from '../services/supabase.js';
 import { gerarResposta, detectarEscalacao } from '../services/openai.js';
+import { buscarPerfil, criarPerfilVazio, formatarPerfilParaPrompt, extrairEAtualizarPerfil, gerarResumoHandoff } from '../services/leadProfile.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
 import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
@@ -463,9 +464,17 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   // 6. Salvar mensagem do lead
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
+  // Buscar perfil estruturado do lead (ou criar se não existe)
+  let perfilLead = await buscarPerfil(lead.id);
+  if (!perfilLead) {
+    perfilLead = await criarPerfilVazio(lead.id);
+  }
+
   // 7. Fechar matrícula — escalação imediata
   if (querFecharMatricula(conteudo)) {
-    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula' });
+    // Gerar resumo de handoff para a equipe
+    const resumoFechar = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
+    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo: resumoFechar });
     return;
   }
 
@@ -495,7 +504,9 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   // 12. Verificar escalação via GPT
   const { escalar, motivo } = await detectarEscalacao({ historico: historicoFormatado, mensagemNova: conteudo });
   if (escalar && !ePerguntaInformativa) {
-    await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado' });
+    // Gerar resumo de handoff para a equipe
+    const resumoGatilho = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
+    await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado', resumo: resumoGatilho });
     return;
   }
 
@@ -619,7 +630,8 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
 
   let resposta;
   try {
-    const systemPrompt = montarSystemPrompt();
+    const perfilContexto = formatarPerfilParaPrompt(perfilLead);
+    const systemPrompt = montarSystemPrompt(perfilContexto);
     resposta = await gerarResposta({ systemPrompt, historico: historicoFormatado, mensagemNova: mensagemComContexto });
   } catch (error) {
     console.error('❌ Erro ao gerar resposta:', error.message);
@@ -631,6 +643,11 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     await enviarTexto(phone, resposta);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
     console.log(`✅ Mila respondeu pro lead ${lead.id}`);
+
+    // Extrair perfil em background — não bloqueia a resposta
+    const historicoCompleto = [...historicoFormatado, { role: 'user', content: mensagemComContexto }, { role: 'assistant', content: resposta }];
+    extrairEAtualizarPerfil(lead.id, historicoCompleto).catch((e) => console.error('❌ Extração de perfil:', e.message));
+
   } catch (error) {
     console.error('❌ Erro ao enviar resposta:', error.message);
     await gravarLog({ contexto: 'zapi', mensagem: 'Erro ao enviar resposta', telefone: phone, leadId: lead.id, payload: { erro: error.message, resposta } });
