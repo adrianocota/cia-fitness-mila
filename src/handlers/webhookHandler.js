@@ -57,6 +57,15 @@ const TODAS_MODALIDADES = [
   'barre', 'pole', 'aqua', 'natação', 'ciclismo', 'rpm',
   'body pump', 'body combat', 'body attack', 'kung fu', 'kungfu',
   'capoeira', 'jiu jitsu', 'jiujitsu', 'karate', 'judô', 'judo',
+  'krav maga', 'kravmaga', 'kickbox', 'kickboxing', 'kikboxe', 'kikbox',
+  'kikboxign', 'kickboxign', 'luta', 'lutas', 'mma', 'wrestling',
+  'taekwondo', 'taekwond', 'aikido', 'hapkido', 'esgrima',
+  'relaxamento', 'meditação', 'meditacao', 'mindfulness',
+  'dança do ventre', 'belly dance', 'forró', 'forro', 'samba', 'funk',
+  'mix fank', 'mix funk', 'mixfank', 'molejo', 'pagode',
+  'ritbox', 'ritboxe', 'bokwa', 'sh'bam', 'shbam',
+  'treinamento funcional', 'circuito', 'circuit',
+  'fisioterapia', 'piloxing', 'kangoo',
 ];
 
 const REGEX = {
