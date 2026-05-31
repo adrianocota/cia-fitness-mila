@@ -577,6 +577,24 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
     return;
   }
 
+  // 15b. Medicamento para emagrecimento — detecção via GPT
+  // Cobre qualquer medicamento (Manjaro, Ozempic, Wegovy, Mounjaro, Saxenda, etc.)
+  // Lista é infinita — só GPT consegue detectar de forma confiável.
+  const eMedicamento = await classificarIntencao(
+    conteudo,
+    'O lead está mencionando ou perguntando sobre algum medicamento, remédio, injeção ou tratamento médico?',
+    ['SIM', 'NAO'],
+    'SIM = menciona medicamento de emagrecimento, remédio, injeção, tratamento, droga, substância. Ex: Ozempic, Manjaro, Wegovy, Mounjaro, Saxenda, semaglutida, sibutramina, qualquer nome de remédio. NAO = qualquer outra coisa.'
+  );
+  if (eMedicamento === 'SIM') {
+    console.log('💊 Medicamento detectado — respondendo sem opinar.');
+    const resposta = 'Sobre medicamentos não tenho como opinar — isso é com o médico. O que posso dizer é que treino e alimentação potencializam muito qualquer tratamento. Quer saber mais sobre como funciona aqui na Cia?';
+    try {
+      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+    } catch (error) { console.error('❌ Erro ao enviar resposta medicamento:', error.message); }
+    return;
+  }
+
   // 16. Criança / bebê — regex + GPT como fallback
   const regexDetectouCrianca = REGEX.crianca.test(conteudo);
   let gptDetectouCrianca = false;
