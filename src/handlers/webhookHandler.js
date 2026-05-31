@@ -15,10 +15,10 @@ import {
   reativarLead,
   gravarLog,
 } from '../services/supabase.js';
-import { gerarResposta, detectarEscalacao, classificarIntencao } from '../services/openai.js';
+import { gerarResposta, classificarIntencao } from '../services/openai.js';
 import { buscarPerfil, criarPerfilVazio, formatarPerfilParaPrompt, extrairEAtualizarPerfil, gerarResumoHandoff } from '../services/leadProfile.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
-import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
+// messageClassifier substituído por classificarIntencao
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 // ─── URLS DE MÍDIA ────────────────────────────────────────────────────────────
@@ -255,26 +255,22 @@ function diasDeSilencio(lead) {
 // Se sim, pede ao GPT para reformular com outras palavras, mantendo o conteúdo.
 // Isso garante que a Mila nunca soe robótica — mesmo em casos não previstos.
 
-function similaridade(a, b) {
-  if (!a || !b) return 0;
-  const normalize = (s) => s.toLowerCase().replace(/[^a-záàâãéêíóôõúüç\s]/g, '').trim();
-  const na = normalize(a);
-  const nb = normalize(b);
-  // Checa se mais de 60% das palavras são iguais
-  const wordsA = new Set(na.split(/\s+/));
-  const wordsB = nb.split(/\s+/);
-  const matches = wordsB.filter(w => wordsA.has(w)).length;
-  return matches / Math.max(wordsA.size, wordsB.length);
-}
-
 async function reformularSeNecessario(textoOriginal, historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return textoOriginal;
 
-  const sim = similaridade(ultima.conteudo, textoOriginal);
-  if (sim < 0.5) return textoOriginal; // Não é similar, usa o original
+  // Usa GPT para detectar similaridade semântica — cobre casos onde palavras são
+  // diferentes mas o conteúdo é o mesmo (ex: "preço fixo" vs "valores tabelados")
+  try {
+    const resultado = await classificarIntencao(
+      textoOriginal,
+      'Esta mensagem transmite o mesmo conteúdo e significado que a mensagem anterior?',
+      ['SIM', 'NAO'],
+      `Mensagem anterior: "${ultima.conteudo.slice(0, 150)}"`
+    );
 
-  console.log(`🔄 Reformulando resposta similar (sim=${sim.toFixed(2)})`);
+    if (resultado !== 'SIM') return textoOriginal;
+    console.log('🔄 Reformulando resposta semanticamente similar...');
 
   try {
     const reformulada = await gerarResposta({
@@ -479,55 +475,51 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     perfilLead = await criarPerfilVazio(lead.id);
   }
 
-  // 7. Fechar matrícula — escalação imediata
-  // 7+8. Classificar intenção via GPT — cobre emojis, gírias, qualquer texto
-  // Substitui querFecharMatricula (regex) + classificarMensagem por uma única chamada inteligente.
-  const intencaoLead = await classificarIntencao(
+  // 7. CLASSIFICAÇÃO UNIFICADA — uma única chamada GPT substitui três decisões anteriores:
+  //    classificarIntencao(fechar/encerrar) + detectarEscalacao + querFecharMatricula
+  //    Economiza uma chamada GPT por mensagem e elimina decisões contraditórias.
+  const decisao = await classificarIntencao(
     conteudo,
-    'Qual é a intenção do lead nessa mensagem?',
-    ['FECHAR_MATRICULA', 'ENCERRAMENTO', 'CONTINUAR'],
-    'FECHAR_MATRICULA = quer assinar agora, pagar, matricular ("quero assinar", "vou fechar", "como faço pra pagar"). ENCERRAMENTO = desistiu claramente ("não quero mais", "para de me chamar", "fechei em outro lugar", "tira meu número"). CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, respostas.'
+    'Qual é a ação correta para esta mensagem?',
+    ['FECHAR', 'ENCERRAR', 'ESCALAR', 'CONTINUAR'],
+    `FECHAR = lead quer assinar/matricular/pagar agora. Ex: "quero assinar", "como pago", "vou fechar".
+ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para de me chamar", "fechei em outro lugar".
+ESCALAR = lead pediu explicitamente falar com humano, ou quer agendar visita com hora marcada E confirmou decisão, ou insistiu em desconto pela segunda vez.
+CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, reclamações. Em caso de dúvida use CONTINUAR.`
   );
+  console.log(\`🎯 Decisão: \${decisao} para "\${conteudo.slice(0, 50)}"\`);
 
-  if (intencaoLead === 'FECHAR_MATRICULA') {
-    // 9. Buscar histórico para o handoff
-    const historicoBruto = await buscarHistorico(lead.id, 20);
-    const historicoSemUltima = historicoBruto.slice(0, -1);
-    const historicoFormatado = formatarHistorico(historicoSemUltima);
-    const resumoFechar = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
-    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo: resumoFechar });
-    return;
-  }
-
-  if (intencaoLead === 'ENCERRAMENTO') {
-    await encerrarLead(lead, 'lead expressou desinteresse');
-    return;
-  }
-
-  // 9. Buscar histórico
+  // Buscar histórico — necessário para todos os caminhos seguintes
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
-  // 10. Contexto de silêncio prolongado
+  if (decisao === 'FECHAR') {
+    const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
+    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo });
+    return;
+  }
+
+  if (decisao === 'ENCERRAR') {
+    await encerrarLead(lead, 'lead expressou desinteresse');
+    return;
+  }
+
+  if (decisao === 'ESCALAR') {
+    const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
+    await transferirParaHumano({ lead, motivo: 'gatilho detectado pelo classificador', resumo });
+    return;
+  }
+
+  // CONTINUAR — processar normalmente
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
-    mensagemComContexto = `[CONTEXTO INTERNO: Lead ficou ${Math.floor(silencio)} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`;
+    mensagemComContexto = \`[CONTEXTO INTERNO: Lead ficou \${Math.floor(silencio)} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: \${conteudo}\`;
   }
 
-  // 11. Guards de contexto
-  const ePerguntaPersonal   = REGEX.personal.test(conteudo);
+  const ePerguntaPersonal    = REGEX.personal.test(conteudo);
   const ePerguntaInformativa = REGEX.pagamentosInfo.test(conteudo);
-
-  // 12. Verificar escalação via GPT
-  const { escalar, motivo } = await detectarEscalacao({ historico: historicoFormatado, mensagemNova: conteudo });
-  if (escalar && !ePerguntaInformativa) {
-    // Gerar resumo de handoff para a equipe
-    const resumoGatilho = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
-    await transferirParaHumano({ lead, motivo: motivo || 'gatilho detectado', resumo: resumoGatilho });
-    return;
-  }
 
   // ─── RESPOSTAS FIXAS (por ordem de prioridade) ───────────────────────────
 
@@ -587,9 +579,23 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 16. Criança / bebê
-  if (REGEX.crianca.test(conteudo)) {
-    const resposta = REGEX.bebe.test(conteudo)
+  // 16. Criança / bebê — regex + GPT como fallback
+  const regexDetectouCrianca = REGEX.crianca.test(conteudo);
+  let gptDetectouCrianca = false;
+  let gptDetectouBebe = false;
+  if (!regexDetectouCrianca) {
+    const querCrianca = await classificarIntencao(
+      conteudo,
+      'O lead está perguntando sobre levar criança ou bebê para a academia?',
+      ['CRIANCA', 'BEBE', 'NAO'],
+      'CRIANCA = menciona filho, filha, criança, menor, garoto, garota, kid. BEBE = menciona bebê, bebe, baby, recém-nascido, nenê. NAO = outra coisa.'
+    );
+    gptDetectouCrianca = querCrianca === 'CRIANCA' || querCrianca === 'BEBE';
+    gptDetectouBebe = querCrianca === 'BEBE';
+  }
+  if (regexDetectouCrianca || gptDetectouCrianca) {
+    const eBebe = gptDetectouBebe || REGEX.bebe.test(conteudo);
+    const resposta = eBebe
       ? 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!'
       : 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.';
     try {
@@ -598,8 +604,19 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 17. Dança → Zumba
-  if (REGEX.danca.test(conteudo)) {
+  // 17. Dança → Zumba — regex + GPT como fallback
+  const regexDetectouDanca = REGEX.danca.test(conteudo);
+  let gptDetectouDanca = false;
+  if (!regexDetectouDanca) {
+    const querDanca = await classificarIntencao(
+      conteudo,
+      'O lead está perguntando sobre aulas de dança?',
+      ['SIM', 'NAO'],
+      'SIM = menciona dança, ritmo, coreografia, baile, funk, samba, forró, pagode, axé, reggaeton ou qualquer estilo de dança. NAO = outra coisa.'
+    );
+    gptDetectouDanca = querDanca === 'SIM';
+  }
+  if (regexDetectouDanca || gptDetectouDanca) {
     console.log('💃 Dança detectada — redirecionando para Zumba.');
     const resposta = 'Aula de dança específica não temos, mas temos Zumba, que mistura dança e exercício num formato bem animado. São 30 minutos de Fast Training. Quer que eu envie o quadro de horários?';
     try {
@@ -626,8 +643,19 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   // O detectarPerguntaAulas já foi bloqueado para esse padrão, então o fluxo chega até o GPT.
   // Não precisa de bloco extra aqui — o GPT ao final do fluxo trata corretamente.
 
-  // 19. Fluxo de alunos
-  if (REGEX.fluxo.test(conteudo)) {
+  // 19. Fluxo de alunos — regex + GPT como fallback
+  const regexDetectouFluxo = REGEX.fluxo.test(conteudo);
+  let gptDetectouFluxo = false;
+  if (!regexDetectouFluxo) {
+    const querFluxo = await classificarIntencao(
+      conteudo,
+      'O lead está perguntando sobre lotação, movimento ou horários mais vazios da academia?',
+      ['SIM', 'NAO'],
+      'SIM = quer saber quando a academia está vazia, cheia, tranquila, com menos gente. NAO = outra pergunta.'
+    );
+    gptDetectouFluxo = querFluxo === 'SIM';
+  }
+  if (regexDetectouFluxo || gptDetectouFluxo) {
     try {
       if (!fluxogramaJaFoiEnviado(historicoBruto)) {
         await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
@@ -659,8 +687,19 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 22. Tabela básica de planos
-  if (!ePerguntaPersonal && detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
+  // 22. Tabela básica de planos — regex + GPT como fallback
+  const regexDetectouPlanos = !ePerguntaPersonal && detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto);
+  let gptDetectouPlanos = false;
+  if (!regexDetectouPlanos && !tabelaJaFoiEnviada(historicoBruto) && !ePerguntaPersonal) {
+    const querPlanos = await classificarIntencao(
+      conteudo,
+      'O lead está pedindo informações sobre preços ou planos da academia?',
+      ['SIM', 'NAO'],
+      'SIM = quer saber valores, planos, mensalidade, quanto custa. NAO = qualquer outra pergunta.'
+    );
+    gptDetectouPlanos = querPlanos === 'SIM';
+  }
+  if (regexDetectouPlanos || gptDetectouPlanos) {
     console.log('📋 Enviando tabela básica.');
     try {
       await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
@@ -682,13 +721,22 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   try {
+    // Timing variável — simula raciocínio humano
+    // Respostas curtas: 1s | médias: 2s | longas: 3s
+    const tamanho = resposta.length;
+    const delay = tamanho < 80 ? 1000 : tamanho < 200 ? 2000 : 3000;
+    await new Promise(resolve => setTimeout(resolve, delay));
+
     await enviarTexto(phone, resposta);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
-    console.log(`✅ Mila respondeu pro lead ${lead.id}`);
+    console.log(`✅ Mila respondeu pro lead ${lead.id} (delay: ${delay}ms)`);
 
-    // Extrair perfil em background — não bloqueia a resposta
-    const historicoCompleto = [...historicoFormatado, { role: 'user', content: mensagemComContexto }, { role: 'assistant', content: resposta }];
-    extrairEAtualizarPerfil(lead.id, historicoCompleto).catch((e) => console.error('❌ Extração de perfil:', e.message));
+    // Extrair perfil em background a cada 3 mensagens — economiza tokens sem perder informação
+    const totalMensagens = historicoBruto.length;
+    if (totalMensagens % 3 === 0 || totalMensagens <= 3) {
+      const historicoCompleto = [...historicoFormatado, { role: 'user', content: mensagemComContexto }, { role: 'assistant', content: resposta }];
+      extrairEAtualizarPerfil(lead.id, historicoCompleto).catch((e) => console.error('❌ Extração de perfil:', e.message));
+    }
 
   } catch (error) {
     console.error('❌ Erro ao enviar resposta:', error.message);
