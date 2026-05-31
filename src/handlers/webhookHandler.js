@@ -63,7 +63,7 @@ const TODAS_MODALIDADES = [
   'relaxamento', 'meditação', 'meditacao', 'mindfulness',
   'dança do ventre', 'belly dance', 'forró', 'forro', 'samba', 'funk',
   'mix fank', 'mix funk', 'mixfank', 'molejo', 'pagode',
-  'ritbox', 'ritboxe', 'bokwa', 'sh'bam', 'shbam',
+  'ritbox', 'ritboxe', 'bokwa', 'shbam',
   'treinamento funcional', 'circuito', 'circuit',
   'fisioterapia', 'piloxing', 'kangoo',
 ];
