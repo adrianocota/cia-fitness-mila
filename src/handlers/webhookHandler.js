@@ -15,7 +15,7 @@ import {
   reativarLead,
   gravarLog,
 } from '../services/supabase.js';
-import { gerarResposta, detectarEscalacao } from '../services/openai.js';
+import { gerarResposta, detectarEscalacao, classificarIntencao } from '../services/openai.js';
 import { buscarPerfil, criarPerfilVazio, formatarPerfilParaPrompt, extrairEAtualizarPerfil, gerarResumoHandoff } from '../services/leadProfile.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
 import { classificarMensagem, querFecharMatricula } from '../lib/messageClassifier.js';
@@ -480,16 +480,26 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 7. Fechar matrícula — escalação imediata
-  if (querFecharMatricula(conteudo)) {
-    // Gerar resumo de handoff para a equipe
+  // 7+8. Classificar intenção via GPT — cobre emojis, gírias, qualquer texto
+  // Substitui querFecharMatricula (regex) + classificarMensagem por uma única chamada inteligente.
+  const intencaoLead = await classificarIntencao(
+    conteudo,
+    'Qual é a intenção do lead nessa mensagem?',
+    ['FECHAR_MATRICULA', 'ENCERRAMENTO', 'CONTINUAR'],
+    'FECHAR_MATRICULA = quer assinar agora, pagar, matricular ("quero assinar", "vou fechar", "como faço pra pagar"). ENCERRAMENTO = desistiu claramente ("não quero mais", "para de me chamar", "fechei em outro lugar", "tira meu número"). CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, respostas.'
+  );
+
+  if (intencaoLead === 'FECHAR_MATRICULA') {
+    // 9. Buscar histórico para o handoff
+    const historicoBruto = await buscarHistorico(lead.id, 20);
+    const historicoSemUltima = historicoBruto.slice(0, -1);
+    const historicoFormatado = formatarHistorico(historicoSemUltima);
     const resumoFechar = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
     await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo: resumoFechar });
     return;
   }
 
-  // 8. Classificar encerramento
-  const classificacao = await classificarMensagem(conteudo);
-  if (classificacao === 'encerramento') {
+  if (intencaoLead === 'ENCERRAMENTO') {
     await encerrarLead(lead, 'lead expressou desinteresse');
     return;
   }
@@ -522,9 +532,30 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   // ─── RESPOSTAS FIXAS (por ordem de prioridade) ───────────────────────────
 
   // 13. Confirmação de reenvio — tabela de planos
-  // Normaliza a mensagem removendo pontuação para cobrir casos como "sim.. já pedi"
-  const conteudoNormalizado = conteudo.trim().toLowerCase().replace(/[.!?…,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudoNormalizado)) {
+  // ─── CONFIRMAÇÕES DE REENVIO VIA GPT ────────────────────────────────────────
+  // Usa classificarIntencao em vez de regex para cobrir emojis, gírias e qualquer texto.
+  // Ex: "👍", "vai lá", "manda logo", "obvio", "aff sim" — todos detectados corretamente.
+
+  const ultimaMilaSaida = ultimaSaidaMila(historicoBruto);
+  const ultimaMilaTexto = ultimaMilaSaida?.conteudo || '';
+
+  const eOfertaTabela = ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto);
+  const eOfertaQuadro = ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto);
+  const eOfertaFluxo = ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto);
+
+  // Só chama o GPT se houver uma oferta ativa para confirmar
+  let confirmouReenvio = 'INCERTO';
+  if (eOfertaTabela || eOfertaQuadro || eOfertaFluxo) {
+    confirmouReenvio = await classificarIntencao(
+      conteudo,
+      'O lead está confirmando que quer receber o conteúdo que foi oferecido?',
+      ['SIM', 'NAO', 'INCERTO'],
+      `A Mila ofereceu: "${ultimaMilaTexto.slice(0, 100)}"`
+    );
+    console.log(`🤔 Confirmação de reenvio: ${confirmouReenvio} para "${conteudo}"`);
+  }
+
+  if (eOfertaTabela && confirmouReenvio === 'SIM') {
     console.log('📋 Reenvio de tabela confirmado.');
     const usarCompleta = tabelaCompletaJaFoiEnviada(historicoBruto);
     try {
@@ -539,7 +570,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 14. Confirmação de reenvio — quadro de aulas
-  if (ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudoNormalizado)) {
+  if (eOfertaQuadro && confirmouReenvio === 'SIM') {
     console.log('🗓️ Reenvio de quadro confirmado.');
     try {
       await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
@@ -548,7 +579,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 15. Confirmação de reenvio — fluxograma
-  if (ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudoNormalizado)) {
+  if (eOfertaFluxo && confirmouReenvio === 'SIM') {
     console.log('📊 Reenvio de fluxograma confirmado.');
     try {
       await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
