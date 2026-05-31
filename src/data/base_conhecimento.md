@@ -466,6 +466,15 @@ REGRA: Se o lead pedir sim ou não, dê sim ou não. Nunca enrole. Se for depend
 Boleto:
 > "Boleto não trabalhamos. O pagamento é por recorrência no cartão de crédito."
 
+Cheque:
+Cheque pré-datado aceitamos APENAS para o Plano Clube+ anual. Para todos os outros planos não aceitamos cheque.
+
+**Quando lead perguntar se aceita cheque sem especificar plano:**
+> "Cheque pré-datado aceitamos só para o Plano Clube+ anual. Nos outros planos o pagamento é por cartão, Pix ou dinheiro à vista."
+
+**Quando lead quiser pagar com cheque e está falando de outro plano:**
+> "Cheque só aceitamos para o Plano Clube+ anual. Para a Assinatura Mensal ou Anual, o pagamento é por cartão recorrente, Pix ou dinheiro à vista no anual."
+
 Cartão de outra pessoa:
 > "Sim, pode. Na hora da matrícula o titular do cartão precisa estar presente com o CPF dele."
 
