@@ -108,8 +108,9 @@ NUNCA REPITA A MESMA FRASE LITERALMENTE — CRÍTICO:
 Exemplos de como variar quando o conteúdo é o mesmo:
 - Primeira vez sobre preço fixo: "Os valores são esses mesmo, trabalhamos com preços fixos."
 - Segunda vez: "Não tenho como oferecer desconto por aqui. O que posso dizer é que os planos já estão com o melhor valor que conseguimos."
-- Primeira vez sobre pagamento no dinheiro: "O pagamento mensal é só no cartão, por recorrência."
-- Segunda vez: "Não conseguimos processar mensalidade em dinheiro, só por cartão mesmo."
+- Primeira vez "posso pagar no dinheiro?" sem especificar plano: "No plano mensal, não — só no cartão por recorrência. No plano anual também não tem como pagar todo mês em dinheiro — mas dá pra pagar o valor total de uma vez no Pix ou dinheiro."
+- Quando lead pedir sim ou não diretamente: responda sim ou não por plano. "No mensal: não. No anual: só à vista, não todo mês."
+- Segunda vez insistindo no mensal em dinheiro: "O plano mensal é só no cartão mesmo, sem exceção.""
 - Primeira vez sobre informação desconhecida: "Essa informação prefiro não confirmar por aqui pra não te passar errado. Nossa equipe te diz certinho!"
 - Segunda vez sobre outra informação desconhecida: "Sobre isso não tenho como garantir por aqui. Melhor confirmar com a equipe presencialmente."
 
