@@ -118,7 +118,7 @@ function isPerguntaCurtaDeHorarioAposColetiva(texto, historico) {
 const REGEX_NEGACAO_AULA = /n[aã]o\s+tem|n[aã]o\s+t[eê]m|n[aã]o\s+[eé]|sem\s+aula|n[aã]o\s+oferece|n[aã]o\s+h[aá]|n[aã]o\s+possui/i;
 
 // Extrai a modalidade de uma pergunta "tem aula de X?" / "vocês têm X?"
-const REGEX_EXTRAIR_MODALIDADE = /(?:tem\s+aula\s+de|aula\s+de|aulas?\s+de|modalidade\s+de)\s+([a-záàâãéêíóôõúüçñ][a-záàâãéêíóôõúüçñ\s]{1,25}?)\s*[?!.]?\s*$/i;
+const REGEX_EXTRAIR_MODALIDADE = /(?:tem\s+aula\s+de|aula\s+de|aulas?\s+de|modalidade\s+de)\s+([a-záàâãéêíóôõúüçñ][a-záàâãéêíóôõúüçñ\s\-]{1,30}?)\s*[?!.]?\s*$/i;
 
 // Modalidades confirmadas como texto para checagem
 const MODALIDADES_CONFIRMADAS_TEXTO = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
@@ -200,17 +200,12 @@ function ultimaSaidaMila(historico) {
 function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return false;
-  const padroes = [
-    'Quer que eu envie o quadro de horários?',
-    'posso te enviar o quadro de horários',
-    'envio o quadro de horários',
-    'quer o quadro de horários',
-    'mando o quadro de horários',
-    'te mando o quadro',
-    'quadro de horários!',
-    TEXTO_REENVIO_QUADRO,
-  ];
-  return padroes.some((p) => ultima.conteudo.includes(p));
+  const c = ultima.conteudo;
+  // Cobre tanto textos fixos quanto variações geradas pelo GPT
+  // Ex: "Quer que eu envie o quadro de horários pra você?", "posso te mandar o quadro?", etc.
+  const REGEX_OFERTA_QUADRO = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar).{0,30}quadro.{0,20}hor[aá]rios?/i;
+  const PADROES_FIXOS = [TEXTO_REENVIO_QUADRO, 'quadro de horários!'];
+  return REGEX_OFERTA_QUADRO.test(c) || PADROES_FIXOS.some((p) => c.includes(p));
 }
 
 function ultimaMensagemMilaFoiOfertaDeFluxo(historico) {
