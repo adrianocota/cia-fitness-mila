@@ -74,7 +74,7 @@ const REGEX = {
   comparacaoTodos:   /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo)/i,
   fluxo:             /(fluxo|movimento|lotad|chei|vazi|tranquil|fila|quantos alunos|horário.{0,20}vaz|horário.{0,20}tranquil|horário.{0,20}menos gente|menos movimentad|mais calmo|quando.{0,20}vaz|quando.{0,20}menos|horário.{0,20}cheio|horário.{0,20}lotad)/i,
   pagamentosInfo:    /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|pagar.{0,25}mensal.{0,25}(dinheiro|pix)|(dinheiro|pix).{0,25}mensal|mensalidade.{0,25}(dinheiro|pix)|mensal.{0,25}dinheiro|mensal.{0,25}pix|gympass|totalpass|tp2|gym.{0,5}pass)/i,
-  confirmacaoReenvio: /^(sim|s|yes|pode|pode ser|manda|manda sim|por favor|por fav|claro|quero|quero sim|tá|ta|ok|isso|manda novamente|manda de novo|envia|envia sim|sim por favor|sim, por favor|pode mandar|vai|bora|isso aí)$/i,
+  confirmacaoReenvio: /^(sim|s|yes|pode|pode ser|manda|manda sim|por favor|por fav|claro|quero|quero sim|tá|ta|ok|isso|manda novamente|manda de novo|envia|envia sim|sim por favor|sim, por favor|pode mandar|vai|bora|isso aí|claro que sim|sim pode|vai lá|sim please|já pedi|pode sim|manda aí|manda sim|quero ver|ver sim|sim quero|quero sim|bora ver|pode mandar sim|sim já pedi|já havia pedido|já pedi sim|mandei sim|vai lá|sim manda|sim, manda|sim pode mandar|com certeza|certeza|lógico|lógico que sim|pode mandar|sim por gentileza|sim, por gentileza)$/i,
   crise:             /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
 };
 
@@ -204,27 +204,36 @@ function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
   const c = ultima.conteudo;
   // Cobre tanto textos fixos quanto variações geradas pelo GPT
   // Ex: "Quer que eu envie o quadro de horários pra você?", "posso te mandar o quadro?", etc.
-  const REGEX_OFERTA_QUADRO = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar).{0,30}quadro.{0,20}hor[aá]rios?/i;
-  const PADROES_FIXOS = [TEXTO_REENVIO_QUADRO, 'quadro de horários!'];
-  return REGEX_OFERTA_QUADRO.test(c) || PADROES_FIXOS.some((p) => c.includes(p));
+  // Regex principal: cobre variações do GPT com verbos + quadro
+  const REGEX_OFERTA_QUADRO = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja|confira).{0,40}quadro.{0,30}(?:hor[aá]rios?|aulas?|coletivas?)/i;
+  // Regex secundária: cobre quando "quadro" aparece no final como convite
+  const REGEX_OFERTA_QUADRO2 = /quadro.{0,30}(?:hor[aá]rios?|aulas?|coletivas?).{0,20}(?:\?|!)/i;
+  // Padrões fixos do sistema
+  const PADROES_FIXOS = [TEXTO_REENVIO_QUADRO, 'quadro de horários!', 'quadro de aulas!'];
+  return REGEX_OFERTA_QUADRO.test(c) || REGEX_OFERTA_QUADRO2.test(c) || PADROES_FIXOS.some((p) => c.includes(p));
 }
 
 function ultimaMensagemMilaFoiOfertaDeFluxo(historico) {
   const ultima = ultimaSaidaMila(historico);
-  return ultima?.conteudo === TEXTO_REENVIO_FLUXO;
+  if (!ultima?.conteudo) return false;
+  const c = ultima.conteudo;
+  const REGEX_OFERTA_FLUXO = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja).{0,40}(?:fluxograma|fluxo|movimento|lotaç|horários? mais vazi)/i;
+  const PADROES_FLUXO = [TEXTO_REENVIO_FLUXO, 'fluxograma antes', 'mande novamente', 'manda novamente'];
+  return REGEX_OFERTA_FLUXO.test(c) || c === TEXTO_REENVIO_FLUXO || PADROES_FLUXO.some(p => c.includes(p));
 }
 
 function ultimaMensagemMilaFoiOfertaDeTabela(historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return false;
-  const c = ultima.conteudo.toLowerCase();
-  const padroes = [
-    'tabela comparativa dos planos', 'tabela de planos', 'envie a tabela',
-    'enviar a tabela', 'te envio a tabela', 'mando a tabela', 'tabela dos planos',
-    'quer que eu envie a tabela', 'posso te enviar a tabela',
-    TEXTO_REENVIO_TABELA.toLowerCase(),
+  const c = ultima.conteudo;
+  // Regex: cobre variações do GPT com verbos + tabela/planos
+  const REGEX_OFERTA_TABELA = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja|confira).{0,40}(?:tabela|comparaç|planos?|opç)/i;
+  const PADROES_FIXOS = [
+    TEXTO_REENVIO_TABELA,
+    'tabela comparativa', 'tabela de planos', 'tabela dos planos',
+    'comparação completa', 'Qual delas faz mais sentido', 'Qual deles faz mais sentido'
   ];
-  return padroes.some((p) => c.includes(p));
+  return REGEX_OFERTA_TABELA.test(c) || PADROES_FIXOS.some((p) => c.includes(p));
 }
 
 function dentroJanelaSilencio(lead) {
@@ -513,7 +522,9 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   // ─── RESPOSTAS FIXAS (por ordem de prioridade) ───────────────────────────
 
   // 13. Confirmação de reenvio — tabela de planos
-  if (ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudo.trim().toLowerCase())) {
+  // Normaliza a mensagem removendo pontuação para cobrir casos como "sim.. já pedi"
+  const conteudoNormalizado = conteudo.trim().toLowerCase().replace(/[.!?…,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudoNormalizado)) {
     console.log('📋 Reenvio de tabela confirmado.');
     const usarCompleta = tabelaCompletaJaFoiEnviada(historicoBruto);
     try {
@@ -528,7 +539,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 14. Confirmação de reenvio — quadro de aulas
-  if (ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudo.trim().toLowerCase())) {
+  if (ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudoNormalizado)) {
     console.log('🗓️ Reenvio de quadro confirmado.');
     try {
       await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
@@ -537,7 +548,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 15. Confirmação de reenvio — fluxograma
-  if (ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudo.trim().toLowerCase())) {
+  if (ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudoNormalizado)) {
     console.log('📊 Reenvio de fluxograma confirmado.');
     try {
       await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
