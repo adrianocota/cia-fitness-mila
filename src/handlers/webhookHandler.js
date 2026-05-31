@@ -240,11 +240,65 @@ function diasDeSilencio(lead) {
 
 // ─── ENVIO DE MÍDIA COM TEXTO ─────────────────────────────────────────────────
 
-async function enviarMidiaComTexto(phone, lead, url, marker, texto) {
+// ─── REFORMULAÇÃO ANTI-REPETIÇÃO ─────────────────────────────────────────────
+// Verifica se a última mensagem da Mila é similar ao texto que seria enviado.
+// Se sim, pede ao GPT para reformular com outras palavras, mantendo o conteúdo.
+// Isso garante que a Mila nunca soe robótica — mesmo em casos não previstos.
+
+function similaridade(a, b) {
+  if (!a || !b) return 0;
+  const normalize = (s) => s.toLowerCase().replace(/[^a-záàâãéêíóôõúüç\s]/g, '').trim();
+  const na = normalize(a);
+  const nb = normalize(b);
+  // Checa se mais de 60% das palavras são iguais
+  const wordsA = new Set(na.split(/\s+/));
+  const wordsB = nb.split(/\s+/);
+  const matches = wordsB.filter(w => wordsA.has(w)).length;
+  return matches / Math.max(wordsA.size, wordsB.length);
+}
+
+async function reformularSeNecessario(textoOriginal, historico) {
+  const ultima = ultimaSaidaMila(historico);
+  if (!ultima?.conteudo) return textoOriginal;
+
+  const sim = similaridade(ultima.conteudo, textoOriginal);
+  if (sim < 0.5) return textoOriginal; // Não é similar, usa o original
+
+  console.log(`🔄 Reformulando resposta similar (sim=${sim.toFixed(2)})`);
+
+  try {
+    const reformulada = await gerarResposta({
+      systemPrompt: `Você é Mila, atendente da Cia do Fitness. Reformule a mensagem abaixo com outras palavras, mantendo exatamente o mesmo conteúdo e informações. Seja natural, breve e no estilo WhatsApp. NUNCA use as mesmas frases da mensagem anterior. Responda APENAS com a mensagem reformulada, sem explicações.
+
+Mensagem anterior que você já enviou:
+"${ultima.conteudo}"
+
+Mensagem a reformular:
+"${textoOriginal}"`,
+      historico: [],
+      mensagemNova: 'Reformule agora.',
+    });
+    return reformulada || textoOriginal;
+  } catch (error) {
+    console.error('❌ Erro ao reformular:', error.message);
+    return textoOriginal;
+  }
+}
+
+async function enviarTextoComVariacao(phone, lead, texto, historico) {
+  const textoFinal = await reformularSeNecessario(texto, historico);
+  await enviarTexto(phone, textoFinal);
+  await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: textoFinal });
+}
+
+async function enviarMidiaComTexto(phone, lead, url, marker, texto, historico = []) {
+  const textoFinal = historico.length > 0
+    ? await reformularSeNecessario(texto, historico)
+    : texto;
   await enviarImagem(phone, url, ' ');
   await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
-  await enviarTexto(phone, texto);
-  await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: texto });
+  await enviarTexto(phone, textoFinal);
+  await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: textoFinal });
 }
 
 // ─── WEBHOOK PRINCIPAL ────────────────────────────────────────────────────────
@@ -466,7 +520,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudo.trim().toLowerCase())) {
     console.log('🗓️ Reenvio de quadro confirmado.');
     try {
-      await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS);
+      await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
     } catch (error) { console.error('❌ Erro ao reenviar quadro:', error.message); }
     return;
   }
@@ -475,7 +529,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto) && REGEX.confirmacaoReenvio.test(conteudo.trim().toLowerCase())) {
     console.log('📊 Reenvio de fluxograma confirmado.');
     try {
-      await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO);
+      await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
     } catch (error) { console.error('❌ Erro ao reenviar fluxograma:', error.message); }
     return;
   }
@@ -486,8 +540,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
       ? 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!'
       : 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.';
     try {
-      await enviarTexto(phone, resposta);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
+      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
     } catch (error) { console.error('❌ Erro ao enviar resposta criança:', error.message); }
     return;
   }
@@ -497,8 +550,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     console.log('💃 Dança detectada — redirecionando para Zumba.');
     const resposta = 'Aula de dança específica não temos, mas temos Zumba, que mistura dança e exercício num formato bem animado. São 30 minutos de Fast Training. Quer que eu envie o quadro de horários?';
     try {
-      await enviarTexto(phone, resposta);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
+      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
     } catch (error) { console.error('❌ Erro ao enviar resposta dança:', error.message); }
     return;
   }
@@ -511,8 +563,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     const nomeModal = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
     const resposta = `${nomeModal} não temos. Nossas aulas coletivas são Jump, Combat, Zumba, Funcional e CardioMix, todas em formato Fast Training de 30 minutos. Quer que eu envie o quadro de horários?`;
     try {
-      await enviarTexto(phone, resposta);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
+      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
     } catch (error) { console.error('❌ Erro ao enviar resposta modalidade:', error.message); }
     return;
   }
@@ -526,10 +577,9 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (REGEX.fluxo.test(conteudo)) {
     try {
       if (!fluxogramaJaFoiEnviado(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO);
+        await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
       } else {
-        await enviarTexto(phone, TEXTO_REENVIO_FLUXO);
-        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_REENVIO_FLUXO });
+        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_FLUXO, historicoBruto);
       }
     } catch (error) { console.error('❌ Erro ao enviar fluxograma:', error.message); }
     return;
@@ -539,10 +589,9 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (!ePerguntaPersonal && (detectarPerguntaAulas(conteudo) || isPerguntaCurtaDeHorarioAposColetiva(conteudo, historicoBruto))) {
     try {
       if (!quadroAulasJaFoiEnviado(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS);
+        await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
       } else {
-        await enviarTexto(phone, TEXTO_REENVIO_QUADRO);
-        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_REENVIO_QUADRO });
+        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_QUADRO, historicoBruto);
       }
     } catch (error) { console.error('❌ Erro ao enviar quadro:', error.message); }
     return;
@@ -552,7 +601,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (!ePerguntaPersonal && (REGEX.comparacaoTodos.test(conteudo) || todosOsPlanosCitados(historicoBruto)) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
     console.log('📊 Enviando tabela completa.');
     try {
-      await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA);
+      await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBruto);
     } catch (error) { console.error('❌ Erro ao enviar tabela completa:', error.message); }
     return;
   }
@@ -561,7 +610,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (!ePerguntaPersonal && detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto)) {
     console.log('📋 Enviando tabela básica.');
     try {
-      await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS);
+      await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
     } catch (error) { console.error('❌ Erro ao enviar tabela básica:', error.message); }
     return;
   }
