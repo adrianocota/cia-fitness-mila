@@ -81,7 +81,7 @@ const REGEX = {
   termosPlanos:      /(plano|planos|mensalidade|mensalidades|preç|valor|valores|diferen|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i,
   indicadoresPedido: /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|me conta|conta sobre|fala sobre|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|sobre|me explica|como funciona|diferen[çc]|compara|comparar|qual|quanto|o que muda|o que inclui)/i,
   comparacaoTodos:   /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo)/i,
-  fluxo:             /(fluxo|movimento|lotad|chei|vazi|tranquil|fila|quantos alunos|horário.{0,20}vaz|horário.{0,20}tranquil|horário.{0,20}menos gente|menos movimentad|mais calmo|quando.{0,20}vaz|quando.{0,20}menos|horário.{0,20}cheio|horário.{0,20}lotad)/i,
+  fluxo:             /(fluxo|movimento|movimentad|lotad|chei|vazi|tranquil|fila|quantos alunos|horário.{0,20}vaz|horário.{0,20}tranquil|horário.{0,20}menos gente|menos movimentad|mais calmo|quando.{0,20}vaz|quando.{0,20}menos|horário.{0,20}cheio|horário.{0,20}lotad|mais movimentad|menos movimentad|mais vazi|mais cheio|horário.{0,20}pico|pico.{0,20}horário|quando.{0,20}cheio|quando.{0,20}lotad|horários.{0,20}movimentad)/i,
   pagamentosInfo:    /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|pagar.{0,25}mensal.{0,25}(dinheiro|pix)|(dinheiro|pix).{0,25}mensal|mensalidade.{0,25}(dinheiro|pix)|mensal.{0,25}dinheiro|mensal.{0,25}pix|gympass|totalpass|tp2|gym.{0,5}pass)/i,
   confirmacaoReenvio: /^(sim|s|yes|pode|pode ser|manda|manda sim|por favor|por fav|claro|quero|quero sim|tá|ta|ok|isso|manda novamente|manda de novo|envia|envia sim|sim por favor|sim, por favor|pode mandar|vai|bora|isso aí|claro que sim|sim pode|vai lá|sim please|já pedi|pode sim|manda aí|manda sim|quero ver|ver sim|sim quero|quero sim|bora ver|pode mandar sim|sim já pedi|já havia pedido|já pedi sim|mandei sim|vai lá|sim manda|sim, manda|sim pode mandar|com certeza|certeza|lógico|lógico que sim|pode mandar|sim por gentileza|sim, por gentileza)$/i,
   crise:             /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
@@ -780,8 +780,20 @@ Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
     return;
   }
 
-  // 18. Modalidade não confirmada — GPT gera resposta variada com histórico
-  const modalidadeMencionada = detectarModalidadeMencionada(conteudo);
+  // 18. Modalidade não confirmada — detecção por lista + GPT como fallback
+  let modalidadeMencionada = detectarModalidadeMencionada(conteudo);
+  // Se não detectou pela lista, usa GPT para cobrir qualquer modalidade não prevista
+  if (!modalidadeMencionada) {
+    const eModalidade = await classificarIntencao(
+      conteudo,
+      'O lead está perguntando sobre uma modalidade de exercício, luta, dança ou atividade física que não seja musculação?',
+      ['SIM', 'NAO'],
+      'SIM = pergunta sobre qualquer aula, modalidade, atividade física, luta, dança. NAO = pergunta sobre estrutura, preço, horário geral, professor, ou musculação.'
+    );
+    if (eModalidade === 'SIM') {
+      modalidadeMencionada = conteudo.trim(); // usa o texto original como nome
+    }
+  }
   if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
     console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
     const nomeModal = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
@@ -868,27 +880,53 @@ Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, 
     return;
   }
 
-  // 22. Tabela básica de planos — regex + GPT como fallback
-  const regexDetectouPlanos = !ePerguntaPersonal && detectarPerguntaPlanos(conteudo) && !tabelaJaFoiEnviada(historicoBruto);
-  let gptDetectouPlanos = false;
-  if (!regexDetectouPlanos && !tabelaJaFoiEnviada(historicoBruto) && !ePerguntaPersonal) {
-    const querPlanos = await classificarIntencao(
+  // 22. Tabela básica de planos — threshold ALTO via GPT
+  // NUNCA dispara por palavras genéricas de academia. Só quando o lead EXPLICITAMENTE
+  // quer saber preço ou plano agora — não sobre atividades, treino, estrutura ou modalidades.
+  if (!tabelaJaFoiEnviada(historicoBruto) && !ePerguntaPersonal) {
+    const querPlanosAgora = await classificarIntencao(
       conteudo,
-      'O lead está pedindo informações sobre preços ou planos da academia?',
+      'O lead está EXPLICITAMENTE pedindo para ver preços, valores ou planos neste momento?',
       ['SIM', 'NAO'],
-      'SIM = quer saber valores, planos, mensalidade, quanto custa. NAO = qualquer outra pergunta.'
+      `SIM = lead quer saber quanto custa, pedir a tabela, ver os planos, saber o valor. Exemplos: "quanto é?", "me fala sobre os planos", "qual o preço?", "tem mensalidade?", "me manda a tabela".
+NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, modalidades, como funciona, horários, primeira vez na academia, taekwondo, pilates, ou qualquer assunto que não seja DIRETAMENTE sobre preço/plano. Em caso de dúvida: NAO.`
     );
-    gptDetectouPlanos = querPlanos === 'SIM';
-  }
-  if (regexDetectouPlanos || gptDetectouPlanos) {
-    console.log('📋 Enviando tabela básica.');
-    try {
-      await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
-    } catch (error) { console.error('❌ Erro ao enviar tabela básica:', error.message); }
-    return;
+    if (querPlanosAgora === 'SIM') {
+      console.log('📋 Enviando tabela básica — lead pediu explicitamente.');
+      try {
+        await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
+      } catch (error) { console.error('❌ Erro ao enviar tabela básica:', error.message); }
+      return;
+    }
   }
 
   // ─── RESPOSTA GPT ────────────────────────────────────────────────────────
+
+  // 22b. Assunto completamente fora do escopo da academia
+  // Se a mensagem não tem nada a ver com academia, saúde, treino ou a Cia,
+  // a Mila responde com leveza e redireciona — sem loop de ambiguidade.
+  const foraDoEscopo = await classificarIntencao(
+    conteudo,
+    'Esta mensagem tem alguma relação com academia, treino, saúde, exercício, planos ou a Cia do Fitness?',
+    ['SIM', 'NAO'],
+    'SIM = qualquer coisa relacionada a academia, treino, exercício, saúde, corpo, planos, horários, estrutura, localização, preço, modalidades, professores. NAO = assunto completamente alheio: comida, relacionamento pessoal, política, entretenimento, perguntas filosóficas, etc.'
+  );
+  if (foraDoEscopo === 'NAO') {
+    console.log('🚫 Mensagem fora do escopo — respondendo com leveza.');
+    const respostasForaEscopo = [
+      'Sobre isso não sou especialista! Mas posso te ajudar com tudo sobre a Cia do Fitness.',
+      'Esse assunto foge do meu alcance! Minha especialidade é a Cia do Fitness mesmo.',
+      'Haha, esse não é meu forte! Me pergunta sobre a academia que aí eu mando bem.',
+    ];
+    const ultimaForaEscopo = ultimaSaidaMila(historicoBruto)?.conteudo || '';
+    const idxFora = respostasForaEscopo.findIndex(v => ultimaForaEscopo.includes(v.slice(0, 30)));
+    const respostaFora = respostasForaEscopo[(idxFora + 1) % respostasForaEscopo.length];
+    try {
+      await enviarTexto(phone, respostaFora);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaFora });
+    } catch (e) { console.error('❌ Erro fora escopo:', e.message); }
+    return;
+  }
 
   let resposta;
   try {
