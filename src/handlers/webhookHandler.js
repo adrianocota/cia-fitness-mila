@@ -18,7 +18,6 @@ import {
 import { gerarResposta, classificarIntencao } from '../services/openai.js';
 import { buscarPerfil, criarPerfilVazio, formatarPerfilParaPrompt, extrairEAtualizarPerfil, gerarResumoHandoff } from '../services/leadProfile.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
-// messageClassifier substituído por classificarIntencao
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 // ─── URLS DE MÍDIA ────────────────────────────────────────────────────────────
@@ -39,8 +38,6 @@ const TEXTO_REENVIO_TABELA  = 'Já te enviei a tabela de planos antes. Quer que 
 const TEXTO_REENVIO_FLUXO   = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
 
 // ─── DEBOUNCE ─────────────────────────────────────────────────────────────────
-// Acumula mensagens em sequência rápida do mesmo número e processa tudo junto
-// após DEBOUNCE_MS de silêncio.
 
 const DEBOUNCE_MS = 2500;
 const filaDebounce = new Map();
@@ -80,7 +77,8 @@ const REGEX = {
   indicadoresGrade:  /(horário|hora|grade|quadro|quando|que dia|qual dia|dias|tabela|cronograma|tem.{0,10}aula|tem.{0,10}coletiv|que aulas|quais aulas|quais.{0,15}modalidade)/i,
   termosPlanos:      /(plano|planos|mensalidade|mensalidades|preç|valor|valores|diferen|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i,
   indicadoresPedido: /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|me conta|conta sobre|fala sobre|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|sobre|me explica|como funciona|diferen[çc]|compara|comparar|qual|quanto|o que muda|o que inclui)/i,
-  comparacaoTodos:   /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo)/i,
+  // ✅ CORRIGIDO: inclui variações de "vantagem", "diferença" e "o que tem em cada plano"
+  comparacaoTodos:   /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo|vantagem.{0,30}(plano|cada|mensal|anual)|diferença.{0,30}(plano|cada|mensal|anual)|o que.{0,20}(tem|inclui|muda).{0,20}(plano|cada|mensal|anual)|qual.{0,20}(melhor|vantagem|diferença))/i,
   fluxo:             /(fluxo|movimento|movimentad|lotad|chei|vazi|tranquil|fila|quantos alunos|horário.{0,20}vaz|horário.{0,20}tranquil|horário.{0,20}menos gente|menos movimentad|mais calmo|quando.{0,20}vaz|quando.{0,20}menos|horário.{0,20}cheio|horário.{0,20}lotad|mais movimentad|menos movimentad|mais vazi|mais cheio|horário.{0,20}pico|pico.{0,20}horário|quando.{0,20}cheio|quando.{0,20}lotad|horários.{0,20}movimentad)/i,
   pagamentosInfo:    /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|pagar.{0,25}mensal.{0,25}(dinheiro|pix)|(dinheiro|pix).{0,25}mensal|mensalidade.{0,25}(dinheiro|pix)|mensal.{0,25}dinheiro|mensal.{0,25}pix|gympass|totalpass|tp2|gym.{0,5}pass)/i,
   confirmacaoReenvio: /^(sim|s|yes|pode|pode ser|manda|manda sim|por favor|por fav|claro|quero|quero sim|tá|ta|ok|isso|manda novamente|manda de novo|envia|envia sim|sim por favor|sim, por favor|pode mandar|vai|bora|isso aí|claro que sim|sim pode|vai lá|sim please|já pedi|pode sim|manda aí|manda sim|quero ver|ver sim|sim quero|quero sim|bora ver|pode mandar sim|sim já pedi|já havia pedido|já pedi sim|mandei sim|vai lá|sim manda|sim, manda|sim pode mandar|com certeza|certeza|lógico|lógico que sim|pode mandar|sim por gentileza|sim, por gentileza)$/i,
@@ -108,8 +106,6 @@ function modalidadeEConfirmada(modalidade) {
   return MODALIDADES_CONFIRMADAS.some((m) => modalidade.includes(m) || m.includes(modalidade));
 }
 
-// Detecta perguntas curtas de horário quando o contexto imediato foi sobre aulas coletivas.
-// Ex: Mila falou de Zumba -> lead perguntou "quais horários?" -> envia quadro, não fala de pico.
 const REGEX_HORARIO_CURTO = /^(quais hor[aá]rios?|que hor[aá]rios?|qual hor[aá]rio|que horas?|quando tem|que dias?|quais dias?|qual dia|como [eé] o hor[aá]rio|tem hor[aá]rio|os hor[aá]rios?)\s*[?!.]?\s*$/i;
 const REGEX_CONTEXTO_COLETIVA = /(jump|combat|zumba|funcional|cardiomix|cardio mix|fast training|aula coletiva|aulas coletivas|modalidade|modalidades|30 minutos)/i;
 
@@ -124,26 +120,18 @@ function isPerguntaCurtaDeHorarioAposColetiva(texto, historico) {
   return REGEX_HORARIO_CURTO.test(texto.trim()) && ultimaMilaFalouDeColetiva(historico);
 }
 
-// Negações sobre aulas não devem disparar o quadro.
 const REGEX_NEGACAO_AULA = /n[aã]o\s+tem|n[aã]o\s+t[eê]m|n[aã]o\s+[eé]|sem\s+aula|n[aã]o\s+oferece|n[aã]o\s+h[aá]|n[aã]o\s+possui/i;
-
-// Extrai a modalidade de uma pergunta "tem aula de X?" / "vocês têm X?"
 const REGEX_EXTRAIR_MODALIDADE = /(?:tem\s+aula\s+de|aula\s+de|aulas?\s+de|modalidade\s+de)\s+([a-záàâãéêíóôõúüçñ][a-záàâãéêíóôõúüçñ\s\-]{1,30}?)\s*[?!.]?\s*$/i;
-
-// Modalidades confirmadas como texto para checagem
 const MODALIDADES_CONFIRMADAS_TEXTO = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
 
 function perguntaSobreModalidadeNaoConfirmada(texto) {
-  // Negações saem direto — o bloco 18 trata
   if (REGEX_NEGACAO_AULA.test(texto)) return false;
   const match = REGEX_EXTRAIR_MODALIDADE.exec(texto.toLowerCase().trim());
   if (!match) return false;
   const modalidadePerguntada = match[1].trim();
-  // Se é modalidade confirmada, deixa o quadro de aulas responder normalmente
   const eConfirmada = MODALIDADES_CONFIRMADAS_TEXTO.some((m) =>
     modalidadePerguntada.includes(m) || m.includes(modalidadePerguntada)
   );
-  // Se é coletiva genericamente, deixa o quadro responder
   if (/coletiv/.test(modalidadePerguntada)) return false;
   return !eConfirmada;
 }
@@ -151,9 +139,7 @@ function perguntaSobreModalidadeNaoConfirmada(texto) {
 function detectarPerguntaAulas(texto) {
   if (!texto) return false;
   if (REGEX.contextoPlan.test(texto)) return false;
-  // Negações não disparam quadro
   if (REGEX_NEGACAO_AULA.test(texto)) return false;
-  // "tem aula de X?" onde X não é modalidade confirmada → GPT responde, não quadro
   if (perguntaSobreModalidadeNaoConfirmada(texto)) return false;
   return REGEX.termosAulas.test(texto) && REGEX.indicadoresGrade.test(texto);
 }
@@ -166,8 +152,6 @@ function detectarPerguntaPlanos(texto) {
 }
 
 // ─── VERIFICAÇÕES DE HISTÓRICO ────────────────────────────────────────────────
-// IMPORTANTE: usar APENAS os markers internos para verificar o que foi enviado.
-// Nunca usar conteúdo de texto livre como critério — evita falsos positivos.
 
 function tabelaJaFoiEnviada(historico) {
   return historico.some((m) =>
@@ -211,13 +195,8 @@ function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return false;
   const c = ultima.conteudo;
-  // Cobre tanto textos fixos quanto variações geradas pelo GPT
-  // Ex: "Quer que eu envie o quadro de horários pra você?", "posso te mandar o quadro?", etc.
-  // Regex principal: cobre variações do GPT com verbos + quadro
   const REGEX_OFERTA_QUADRO = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja|confira).{0,40}quadro.{0,30}(?:hor[aá]rios?|aulas?|coletivas?)/i;
-  // Regex secundária: cobre quando "quadro" aparece no final como convite
   const REGEX_OFERTA_QUADRO2 = /quadro.{0,30}(?:hor[aá]rios?|aulas?|coletivas?).{0,20}(?:\?|!)/i;
-  // Padrões fixos do sistema
   const PADROES_FIXOS = [TEXTO_REENVIO_QUADRO, 'quadro de horários!', 'quadro de aulas!'];
   return REGEX_OFERTA_QUADRO.test(c) || REGEX_OFERTA_QUADRO2.test(c) || PADROES_FIXOS.some((p) => c.includes(p));
 }
@@ -235,7 +214,6 @@ function ultimaMensagemMilaFoiOfertaDeTabela(historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return false;
   const c = ultima.conteudo;
-  // Regex: cobre variações do GPT com verbos + tabela/planos
   const REGEX_OFERTA_TABELA = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja|confira).{0,40}(?:tabela|comparaç|planos?|opç)/i;
   const PADROES_FIXOS = [
     TEXTO_REENVIO_TABELA,
@@ -257,11 +235,7 @@ function diasDeSilencio(lead) {
   return (Date.now() - new Date(lead.ultima_interacao_em).getTime()) / (1000 * 60 * 60 * 24);
 }
 
-// ─── ENVIO DE MÍDIA COM TEXTO ─────────────────────────────────────────────────
-
-// ─── SELEÇÃO DE VARIAÇÃO ─────────────────────────────────────────────────────
-// Seleciona a próxima variação de uma lista baseado na última mensagem da Mila.
-// Garante que a mesma resposta nunca seja enviada duas vezes seguidas.
+// ─── SELEÇÃO DE VARIAÇÃO ──────────────────────────────────────────────────────
 
 function selecionarVariacao(variacoes, historico) {
   const ultima = ultimaSaidaMila(historico);
@@ -274,18 +248,13 @@ function selecionarVariacao(variacoes, historico) {
 }
 
 // ─── REFORMULAÇÃO ANTI-REPETIÇÃO ─────────────────────────────────────────────
-// Verifica se a última mensagem da Mila é similar ao texto que seria enviado.
-// Se sim, pede ao GPT para reformular com outras palavras, mantendo o conteúdo.
-// Isso garante que a Mila nunca soe robótica — mesmo em casos não previstos.
 
 async function reformularSeNecessario(textoOriginal, historico) {
   const ultima = ultimaSaidaMila(historico);
   if (!ultima?.conteudo) return textoOriginal;
 
-  // Comparação exata — sempre reformula se for idêntico
   const identico = ultima.conteudo.trim() === textoOriginal.trim();
 
-  // Comparação por palavras — reformula se mais de 70% das palavras forem iguais
   const normalize = (s) => s.toLowerCase().replace(/[^a-záàâãéêíóôõúüç\s]/g, '').trim();
   const wordsA = new Set(normalize(ultima.conteudo).split(/\s+/));
   const wordsB = normalize(textoOriginal).split(/\s+/);
@@ -337,21 +306,18 @@ async function enviarMidiaComTexto(phone, lead, url, marker, texto, historico = 
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
-  // Deduplicação por messageId
   const messageId = webhookBody.messageId || webhookBody.id || null;
   if (messageId) {
     const duplicata = await verificarDuplicata(messageId);
     if (duplicata) return;
   }
 
-  // Ignorar grupos
   const phoneOrigem = webhookBody.phone || '';
   if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
     console.log(`🔕 Mensagem de grupo ignorada (${phoneOrigem})`);
     return;
   }
 
-  // Mensagem enviada por humano (atendente) — só salva no histórico
   if (ehMensagemDeHumano(webhookBody)) {
     console.log('👤 Mensagem manual de humano detectada.');
     const phone = webhookBody.phone;
@@ -376,23 +342,19 @@ export async function processarWebhook(webhookBody) {
 
   const { phone, nome, conteudo, tipo } = mensagem;
 
-  // Mídia (áudio/imagem) não passa pelo debounce
   if (tipo !== 'texto') {
     await processarMensagem(phone, nome, conteudo, tipo, webhookBody);
     return;
   }
 
-  // Deduplicação por conteúdo
   const duplicataConteudo = await verificarDuplicataConteudo(phone, conteudo);
   if (duplicataConteudo) return;
 
-  // Modo teste
   if (isTestMode() && phone !== config.testPhoneNumber) {
     console.log(`🧪 Modo teste ativo. Ignorando ${phone}.`);
     return;
   }
 
-  // Debounce: acumula mensagens rápidas do mesmo número
   console.log(`⏳ Debounce iniciado para ${phone}: "${conteudo}"`);
 
   if (filaDebounce.has(phone)) {
@@ -501,16 +463,13 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   // 6. Salvar mensagem do lead
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
-  // Buscar perfil estruturado do lead (ou criar se não existe)
+  // Buscar perfil estruturado do lead
   let perfilLead = await buscarPerfil(lead.id);
   if (!perfilLead) {
     perfilLead = await criarPerfilVazio(lead.id);
   }
 
-  // 7. GUARD DE OFERTA ATIVA — verifica ANTES da classificação unificada
-  // Se havia uma oferta ativa (quadro/tabela/fluxo) e o lead confirmou,
-  // processa o reenvio imediatamente sem passar pela classificação.
-  // Isso evita que "Quero", "sim", "👍" seja interpretado como FECHAR matrícula.
+  // 7. GUARD DE OFERTA ATIVA
   {
     const historicoBrutoGuard = await buscarHistorico(lead.id, 20);
     const ultimaMilaGuard = ultimaSaidaMila(historicoBrutoGuard);
@@ -555,9 +514,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     }
   }
 
-  // 8. CLASSIFICAÇÃO UNIFICADA — uma única chamada GPT substitui três decisões anteriores:
-  //    classificarIntencao(fechar/encerrar) + detectarEscalacao + querFecharMatricula
-  //    Economiza uma chamada GPT por mensagem e elimina decisões contraditórias.
+  // 8. CLASSIFICAÇÃO UNIFICADA
   const decisao = await classificarIntencao(
     conteudo,
     'Qual é a ação correta para esta mensagem?',
@@ -569,7 +526,6 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   );
   console.log(`🎯 Decisão: ${decisao} para "${conteudo.slice(0, 50)}"`);
 
-  // Buscar histórico — necessário para todos os caminhos seguintes
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
@@ -591,7 +547,7 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
     return;
   }
 
-  // CONTINUAR — processar normalmente
+  // CONTINUAR
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
@@ -601,21 +557,14 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   const ePerguntaPersonal    = REGEX.personal.test(conteudo);
   const ePerguntaInformativa = REGEX.pagamentosInfo.test(conteudo);
 
-  // ─── RESPOSTAS FIXAS (por ordem de prioridade) ───────────────────────────
-
-  // 13. Confirmação de reenvio — tabela de planos
-  // ─── CONFIRMAÇÕES DE REENVIO VIA GPT ────────────────────────────────────────
-  // Usa classificarIntencao em vez de regex para cobrir emojis, gírias e qualquer texto.
-  // Ex: "👍", "vai lá", "manda logo", "obvio", "aff sim" — todos detectados corretamente.
-
+  // 13–15. Confirmações de reenvio via GPT
   const ultimaMilaSaida = ultimaSaidaMila(historicoBruto);
   const ultimaMilaTexto = ultimaMilaSaida?.conteudo || '';
 
   const eOfertaTabela = ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto);
   const eOfertaQuadro = ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto);
-  const eOfertaFluxo = ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto);
+  const eOfertaFluxo  = ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto);
 
-  // Só chama o GPT se houver uma oferta ativa para confirmar
   let confirmouReenvio = 'INCERTO';
   if (eOfertaTabela || eOfertaQuadro || eOfertaFluxo) {
     confirmouReenvio = await classificarIntencao(
@@ -641,7 +590,6 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
     return;
   }
 
-  // 14. Confirmação de reenvio — quadro de aulas
   if (eOfertaQuadro && confirmouReenvio === 'SIM') {
     console.log('🗓️ Reenvio de quadro confirmado.');
     try {
@@ -650,7 +598,6 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
     return;
   }
 
-  // 15. Confirmação de reenvio — fluxograma
   if (eOfertaFluxo && confirmouReenvio === 'SIM') {
     console.log('📊 Reenvio de fluxograma confirmado.');
     try {
@@ -660,8 +607,6 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   }
 
   // 15b. Medicamento para emagrecimento — detecção via GPT
-  // Cobre qualquer medicamento (Manjaro, Ozempic, Wegovy, Mounjaro, Saxenda, etc.)
-  // Lista é infinita — só GPT consegue detectar de forma confiável.
   const eMedicamento = await classificarIntencao(
     conteudo,
     'O lead está mencionando ou perguntando sobre algum medicamento, remédio, injeção ou tratamento médico?',
@@ -670,10 +615,7 @@ CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, 
   );
   if (eMedicamento === 'SIM') {
     console.log('💊 Medicamento detectado — gerando resposta via GPT.');
-    // Passa pelo GPT com o histórico completo — ele naturalmente varia a resposta
-    // porque lê o que já disse e não repete. Muito mais robusto que array de variações.
     try {
-      // Extrair respostas anteriores sobre medicamento para mostrar ao GPT o que não repetir
       const respostasAnteriresMed = historicoBruto
         .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
           (m.conteudo.toLowerCase().includes('médico') || m.conteudo.toLowerCase().includes('medicamento') ||
@@ -699,7 +641,7 @@ Sua resposta DEVE:
 
 Estilos possíveis (escolha um diferente do que já usou):
 - Bem direto: "Isso é com o médico, não comigo."
-- Com empatia: "Entendo a curiosidade, mas remédio é assunto do seu médico."  
+- Com empatia: "Entendo a curiosidade, mas remédio é assunto do seu médico."
 - Com leveza: "Aí eu não me meto não — isso é especialidade médica!"
 - Com contexto: "Cada organismo reage diferente, por isso só o médico pode orientar sobre isso."`,
         historico: historicoFormatado,
@@ -713,7 +655,7 @@ Estilos possíveis (escolha um diferente do que já usou):
     return;
   }
 
-  // 16. Criança / bebê — regex + GPT como fallback
+  // 16. Criança / bebê
   const regexDetectouCrianca = REGEX.crianca.test(conteudo);
   let gptDetectouCrianca = false;
   let gptDetectouBebe = false;
@@ -738,7 +680,7 @@ Estilos possíveis (escolha um diferente do que já usou):
     return;
   }
 
-  // 17. Dança → Zumba — regex + GPT como fallback
+  // 17. Dança → Zumba
   const regexDetectouDanca = REGEX.danca.test(conteudo);
   let gptDetectouDanca = false;
   if (!regexDetectouDanca) {
@@ -752,7 +694,6 @@ Estilos possíveis (escolha um diferente do que já usou):
   }
   if (regexDetectouDanca || gptDetectouDanca) {
     console.log('💃 Dança detectada — redirecionando para Zumba.');
-    // GPT gera resposta variada — não repete graças ao histórico explícito
     const respostasDanca = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         m.conteudo.toLowerCase().includes('zumba'))
@@ -780,9 +721,8 @@ Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
     return;
   }
 
-  // 18. Modalidade não confirmada — detecção por lista + GPT como fallback
+  // 18. Modalidade não confirmada
   let modalidadeMencionada = detectarModalidadeMencionada(conteudo);
-  // Se não detectou pela lista, usa GPT para cobrir qualquer modalidade não prevista
   if (!modalidadeMencionada) {
     const eModalidade = await classificarIntencao(
       conteudo,
@@ -791,14 +731,13 @@ Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
       'SIM = pergunta sobre qualquer aula, modalidade, atividade física, luta, dança. NAO = pergunta sobre estrutura, preço, horário geral, professor, ou musculação.'
     );
     if (eModalidade === 'SIM') {
-      modalidadeMencionada = conteudo.trim(); // usa o texto original como nome
+      modalidadeMencionada = conteudo.trim();
     }
   }
   if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
     console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
     const nomeModal = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
 
-    // Extrair respostas anteriores sobre modalidades para o GPT não repetir
     const respostasModais = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         (m.conteudo.toLowerCase().includes('não temos') || m.conteudo.toLowerCase().includes('não tem')))
@@ -831,12 +770,7 @@ Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, 
     return;
   }
 
-  // 18b. Modalidade completamente desconhecida — "tem aula de X?" onde X não está em nenhuma lista
-  // Nesses casos deixamos o GPT responder usando a base de conhecimento.
-  // O detectarPerguntaAulas já foi bloqueado para esse padrão, então o fluxo chega até o GPT.
-  // Não precisa de bloco extra aqui — o GPT ao final do fluxo trata corretamente.
-
-  // 19. Fluxo de alunos — regex + GPT como fallback
+  // 19. Fluxo de alunos
   const regexDetectouFluxo = REGEX.fluxo.test(conteudo);
   let gptDetectouFluxo = false;
   if (!regexDetectouFluxo) {
@@ -871,7 +805,8 @@ Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, 
     return;
   }
 
-  // 21. Tabela completa
+  // 21. Tabela completa — comparativo de todos os planos
+  // ✅ CORRIGIDO: REGEX.comparacaoTodos agora captura "vantagem de cada", "diferença entre planos", etc.
   if (!ePerguntaPersonal && (REGEX.comparacaoTodos.test(conteudo) || todosOsPlanosCitados(historicoBruto)) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
     console.log('📊 Enviando tabela completa.');
     try {
@@ -881,15 +816,14 @@ Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, 
   }
 
   // 22. Tabela básica de planos — threshold ALTO via GPT
-  // NUNCA dispara por palavras genéricas de academia. Só quando o lead EXPLICITAMENTE
-  // quer saber preço ou plano agora — não sobre atividades, treino, estrutura ou modalidades.
+  // ✅ CORRIGIDO: threshold agora inclui "vantagens" e "diferenças entre planos"
   if (!tabelaJaFoiEnviada(historicoBruto) && !ePerguntaPersonal) {
     const querPlanosAgora = await classificarIntencao(
       conteudo,
-      'O lead está EXPLICITAMENTE pedindo para ver preços, valores ou planos neste momento?',
+      'O lead está EXPLICITAMENTE pedindo para ver preços, valores, planos ou entender as vantagens/diferenças entre os planos neste momento?',
       ['SIM', 'NAO'],
-      `SIM = lead quer saber quanto custa, pedir a tabela, ver os planos, saber o valor. Exemplos: "quanto é?", "me fala sobre os planos", "qual o preço?", "tem mensalidade?", "me manda a tabela".
-NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, modalidades, como funciona, horários, primeira vez na academia, taekwondo, pilates, ou qualquer assunto que não seja DIRETAMENTE sobre preço/plano. Em caso de dúvida: NAO.`
+      `SIM = lead quer saber quanto custa, ver os planos, entender vantagens ou diferenças entre planos. Exemplos: "quanto é?", "me fala sobre os planos", "qual o preço?", "tem mensalidade?", "me manda a tabela", "qual a vantagem de cada?", "qual a diferença entre mensal e anual?", "o que tem em cada plano?", "o que muda entre os planos?", "qual é melhor?".
+NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, modalidades, como funciona, horários, primeira vez na academia, taekwondo, pilates, ou qualquer assunto que não seja DIRETAMENTE sobre preço/plano/vantagem. Em caso de dúvida: NAO.`
     );
     if (querPlanosAgora === 'SIM') {
       console.log('📋 Enviando tabela básica — lead pediu explicitamente.');
@@ -900,11 +834,9 @@ NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, mo
     }
   }
 
-  // ─── RESPOSTA GPT ────────────────────────────────────────────────────────
+  // ─── RESPOSTA GPT ─────────────────────────────────────────────────────────
 
-  // 22b. Assunto completamente fora do escopo da academia
-  // Se a mensagem não tem nada a ver com academia, saúde, treino ou a Cia,
-  // a Mila responde com leveza e redireciona — sem loop de ambiguidade.
+  // 22b. Fora do escopo
   const foraDoEscopo = await classificarIntencao(
     conteudo,
     'Esta mensagem tem alguma relação com academia, treino, saúde, exercício, planos ou a Cia do Fitness?',
@@ -940,8 +872,6 @@ NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, mo
   }
 
   try {
-    // Timing variável — simula raciocínio humano
-    // Respostas curtas: 1s | médias: 2s | longas: 3s
     const tamanho = resposta.length;
     const delay = tamanho < 80 ? 1000 : tamanho < 200 ? 2000 : 3000;
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -950,7 +880,6 @@ NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, mo
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
     console.log(`✅ Mila respondeu pro lead ${lead.id} (delay: ${delay}ms)`);
 
-    // Extrair perfil em background a cada 3 mensagens — economiza tokens sem perder informação
     const totalMensagens = historicoBruto.length;
     if (totalMensagens % 3 === 0 || totalMensagens <= 3) {
       const historicoCompleto = [...historicoFormatado, { role: 'user', content: mensagemComContexto }, { role: 'assistant', content: resposta }];
