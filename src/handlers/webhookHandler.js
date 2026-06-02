@@ -77,12 +77,15 @@ const REGEX = {
   indicadoresGrade:  /(horário|hora|grade|quadro|quando|que dia|qual dia|dias|tabela|cronograma|tem.{0,10}aula|tem.{0,10}coletiv|que aulas|quais aulas|quais.{0,15}modalidade)/i,
   termosPlanos:      /(plano|planos|mensalidade|mensalidades|preç|valor|valores|diferen|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i,
   indicadoresPedido: /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|me conta|conta sobre|fala sobre|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|sobre|me explica|como funciona|diferen[çc]|compara|comparar|qual|quanto|o que muda|o que inclui)/i,
-  // ✅ CORRIGIDO: inclui variações de "vantagem", "diferença" e "o que tem em cada plano"
+  // ✅ FIX v2: inclui variações de "vantagem", "diferença" e "o que tem em cada plano"
   comparacaoTodos:   /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo|vantagem.{0,30}(plano|cada|mensal|anual)|diferença.{0,30}(plano|cada|mensal|anual)|o que.{0,20}(tem|inclui|muda).{0,20}(plano|cada|mensal|anual)|qual.{0,20}(melhor|vantagem|diferença))/i,
   fluxo:             /(fluxo|movimento|movimentad|lotad|chei|vazi|tranquil|fila|quantos alunos|horário.{0,20}vaz|horário.{0,20}tranquil|horário.{0,20}menos gente|menos movimentad|mais calmo|quando.{0,20}vaz|quando.{0,20}menos|horário.{0,20}cheio|horário.{0,20}lotad|mais movimentad|menos movimentad|mais vazi|mais cheio|horário.{0,20}pico|pico.{0,20}horário|quando.{0,20}cheio|quando.{0,20}lotad|horários.{0,20}movimentad)/i,
   pagamentosInfo:    /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|pagar.{0,25}mensal.{0,25}(dinheiro|pix)|(dinheiro|pix).{0,25}mensal|mensalidade.{0,25}(dinheiro|pix)|mensal.{0,25}dinheiro|mensal.{0,25}pix|gympass|totalpass|tp2|gym.{0,5}pass)/i,
   confirmacaoReenvio: /^(sim|s|yes|pode|pode ser|manda|manda sim|por favor|por fav|claro|quero|quero sim|tá|ta|ok|isso|manda novamente|manda de novo|envia|envia sim|sim por favor|sim, por favor|pode mandar|vai|bora|isso aí|claro que sim|sim pode|vai lá|sim please|já pedi|pode sim|manda aí|manda sim|quero ver|ver sim|sim quero|quero sim|bora ver|pode mandar sim|sim já pedi|já havia pedido|já pedi sim|mandei sim|vai lá|sim manda|sim, manda|sim pode mandar|com certeza|certeza|lógico|lógico que sim|pode mandar|sim por gentileza|sim, por gentileza)$/i,
   crise:             /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
+  // ✅ FIX v3: saudações e termos de preço nunca são fora do escopo
+  saudacao:          /^(oi|olá|ola|bom dia|boa tarde|boa noite|tudo bem|tudo bom|e aí|eai|opa|hey|hi|hello|salve|boa|e então|boas|oi tudo|oi boa|boa dia|ola boa|olá boa)\b/i,
+  precoObvio:        /(quanto custa|quanto é|qual o preço|qual o valor|quanto fica|quanto sai|quanto paga|qual a mensalidade|tem promoção|tem desconto|tá caro|tá barato|valor da mensalidade|preço da mensalidade)/i,
 };
 
 // ─── FUNÇÕES AUXILIARES ───────────────────────────────────────────────────────
@@ -149,6 +152,17 @@ function detectarPerguntaPlanos(texto) {
   if (REGEX.avaliando.test(texto)) return false;
   if (REGEX.gradeAulas.test(texto)) return false;
   return REGEX.termosPlanos.test(texto) && REGEX.indicadoresPedido.test(texto);
+}
+
+// ✅ FIX v3: mensagem nunca deve cair em fora do escopo se for saudação, preço óbvio ou muito curta
+function devePassarPeloFiltroEscopo(texto) {
+  if (!texto) return false;
+  if (REGEX.saudacao.test(texto.trim())) return false;
+  if (REGEX.precoObvio.test(texto)) return false;
+  // Mensagens de até 4 palavras raramente são fora do escopo num contexto de academia
+  const palavras = texto.trim().split(/\s+/).length;
+  if (palavras <= 4) return false;
+  return true;
 }
 
 // ─── VERIFICAÇÕES DE HISTÓRICO ────────────────────────────────────────────────
@@ -806,7 +820,7 @@ Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, 
   }
 
   // 21. Tabela completa — comparativo de todos os planos
-  // ✅ CORRIGIDO: REGEX.comparacaoTodos agora captura "vantagem de cada", "diferença entre planos", etc.
+  // ✅ FIX v2: REGEX.comparacaoTodos agora captura "vantagem de cada", "diferença entre planos", etc.
   if (!ePerguntaPersonal && (REGEX.comparacaoTodos.test(conteudo) || todosOsPlanosCitados(historicoBruto)) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
     console.log('📊 Enviando tabela completa.');
     try {
@@ -816,13 +830,13 @@ Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, 
   }
 
   // 22. Tabela básica de planos — threshold ALTO via GPT
-  // ✅ CORRIGIDO: threshold agora inclui "vantagens" e "diferenças entre planos"
+  // ✅ FIX v2: threshold agora inclui "vantagens" e "diferenças entre planos"
   if (!tabelaJaFoiEnviada(historicoBruto) && !ePerguntaPersonal) {
     const querPlanosAgora = await classificarIntencao(
       conteudo,
       'O lead está EXPLICITAMENTE pedindo para ver preços, valores, planos ou entender as vantagens/diferenças entre os planos neste momento?',
       ['SIM', 'NAO'],
-      `SIM = lead quer saber quanto custa, ver os planos, entender vantagens ou diferenças entre planos. Exemplos: "quanto é?", "me fala sobre os planos", "qual o preço?", "tem mensalidade?", "me manda a tabela", "qual a vantagem de cada?", "qual a diferença entre mensal e anual?", "o que tem em cada plano?", "o que muda entre os planos?", "qual é melhor?".
+      `SIM = lead quer saber quanto custa, ver os planos, entender vantagens ou diferenças entre planos. Exemplos: "quanto é?", "me fala sobre os planos", "qual o preço?", "tem mensalidade?", "me manda a tabela", "qual a vantagem de cada?", "qual a diferença entre mensal e anual?", "o que tem em cada plano?", "o que muda entre os planos?", "qual é melhor?", "quanto custa?", "quanto fica?".
 NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, modalidades, como funciona, horários, primeira vez na academia, taekwondo, pilates, ou qualquer assunto que não seja DIRETAMENTE sobre preço/plano/vantagem. Em caso de dúvida: NAO.`
     );
     if (querPlanosAgora === 'SIM') {
@@ -837,27 +851,31 @@ NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, mo
   // ─── RESPOSTA GPT ─────────────────────────────────────────────────────────
 
   // 22b. Fora do escopo
-  const foraDoEscopo = await classificarIntencao(
-    conteudo,
-    'Esta mensagem tem alguma relação com academia, treino, saúde, exercício, planos ou a Cia do Fitness?',
-    ['SIM', 'NAO'],
-    'SIM = qualquer coisa relacionada a academia, treino, exercício, saúde, corpo, planos, horários, estrutura, localização, preço, modalidades, professores. NAO = assunto completamente alheio: comida, relacionamento pessoal, política, entretenimento, perguntas filosóficas, etc.'
-  );
-  if (foraDoEscopo === 'NAO') {
-    console.log('🚫 Mensagem fora do escopo — respondendo com leveza.');
-    const respostasForaEscopo = [
-      'Sobre isso não sou especialista! Mas posso te ajudar com tudo sobre a Cia do Fitness.',
-      'Esse assunto foge do meu alcance! Minha especialidade é a Cia do Fitness mesmo.',
-      'Haha, esse não é meu forte! Me pergunta sobre a academia que aí eu mando bem.',
-    ];
-    const ultimaForaEscopo = ultimaSaidaMila(historicoBruto)?.conteudo || '';
-    const idxFora = respostasForaEscopo.findIndex(v => ultimaForaEscopo.includes(v.slice(0, 30)));
-    const respostaFora = respostasForaEscopo[(idxFora + 1) % respostasForaEscopo.length];
-    try {
-      await enviarTexto(phone, respostaFora);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaFora });
-    } catch (e) { console.error('❌ Erro fora escopo:', e.message); }
-    return;
+  // ✅ FIX v3: saudações, preço óbvio e mensagens curtas NUNCA passam por esse filtro
+  // Isso resolve "ola bom dia" e "quanto custa?" caindo em fora do escopo
+  if (devePassarPeloFiltroEscopo(conteudo)) {
+    const foraDoEscopo = await classificarIntencao(
+      conteudo,
+      'Esta mensagem tem alguma relação com academia, treino, saúde, exercício, planos ou a Cia do Fitness?',
+      ['SIM', 'NAO'],
+      'SIM = qualquer coisa relacionada a academia, treino, exercício, saúde, corpo, planos, horários, estrutura, localização, preço, modalidades, professores. NAO = assunto completamente alheio: comida, relacionamento pessoal, política, entretenimento, perguntas filosóficas, etc.'
+    );
+    if (foraDoEscopo === 'NAO') {
+      console.log('🚫 Mensagem fora do escopo — respondendo com leveza.');
+      const respostasForaEscopo = [
+        'Sobre isso não sou especialista! Mas posso te ajudar com tudo sobre a Cia do Fitness.',
+        'Esse assunto foge do meu alcance! Minha especialidade é a Cia do Fitness mesmo.',
+        'Haha, esse não é meu forte! Me pergunta sobre a academia que aí eu mando bem.',
+      ];
+      const ultimaForaEscopo = ultimaSaidaMila(historicoBruto)?.conteudo || '';
+      const idxFora = respostasForaEscopo.findIndex(v => ultimaForaEscopo.includes(v.slice(0, 30)));
+      const respostaFora = respostasForaEscopo[(idxFora + 1) % respostasForaEscopo.length];
+      try {
+        await enviarTexto(phone, respostaFora);
+        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaFora });
+      } catch (e) { console.error('❌ Erro fora escopo:', e.message); }
+      return;
+    }
   }
 
   let resposta;
