@@ -22,10 +22,10 @@ import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 
 // ─── URLS DE MÍDIA ────────────────────────────────────────────────────────────
 
-const FLUXOGRAMA_URL    = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/fluxo_alunos_2026_tv_2%20(2).png';
-const TABELA_PLANOS_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/tabela%20cia%20do%20fitness.png';
+const FLUXOGRAMA_URL      = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/fluxo_alunos_2026_tv_2%20(2).png';
+const TABELA_PLANOS_URL   = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/tabela%20cia%20do%20fitness.png';
 const TABELA_COMPLETA_URL = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/compare%20os%20planos.png';
-const QUADRO_AULAS_URL  = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/Quadro%20de%20Horario%20NOVO.png';
+const QUADRO_AULAS_URL    = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/Quadro%20de%20Horario%20NOVO.png';
 
 // ─── TEXTOS FIXOS ─────────────────────────────────────────────────────────────
 
@@ -42,50 +42,12 @@ const TEXTO_REENVIO_FLUXO   = 'Já te enviei o fluxograma antes. Quer que eu man
 const DEBOUNCE_MS = 2500;
 const filaDebounce = new Map();
 
-// ─── DETECÇÃO DE INTENÇÃO — REGEX ─────────────────────────────────────────────
-
-const MODALIDADES_CONFIRMADAS = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
-
-const TODAS_MODALIDADES = [
-  'jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix',
-  'ritbox', 'ritboxe', 'pilates', 'yoga', 'youga', 'ioga',
-  'spinning', 'crossfit', 'muay thai', 'boxe', 'step',
-  'hiit', 'tabata', 'localizada', 'alongamento', 'stretching',
-  'barre', 'pole', 'aqua', 'natação', 'ciclismo', 'rpm',
-  'body pump', 'body combat', 'body attack', 'kung fu', 'kungfu',
-  'capoeira', 'jiu jitsu', 'jiujitsu', 'karate', 'judô', 'judo',
-  'krav maga', 'kravmaga', 'kickbox', 'kickboxing', 'kikboxe', 'kikbox',
-  'kikboxign', 'kickboxign', 'luta', 'lutas', 'mma', 'wrestling',
-  'taekwondo', 'taekwond', 'aikido', 'hapkido', 'esgrima',
-  'relaxamento', 'meditação', 'meditacao', 'mindfulness',
-  'dança do ventre', 'belly dance', 'forró', 'forro', 'samba', 'funk',
-  'mix fank', 'mix funk', 'mixfank', 'molejo', 'pagode',
-  'ritbox', 'ritboxe', 'bokwa', 'shbam',
-  'treinamento funcional', 'circuito', 'circuit',
-  'fisioterapia', 'piloxing', 'kangoo',
-];
+// ─── REGEX MÍNIMOS — apenas para casos que não precisam de contexto ───────────
 
 const REGEX = {
-  contextoPlan:      /(econômic|economic|mensal|anual|plano|assinatura|clube\+|clube plus)/i,
-  avaliando:         /(avaliando|comparando|pesquisando|ainda.{0,15}decid|ainda.{0,15}pens)/i,
-  danca:             /(dança|danca|aula.{0,15}dan[çc]|forró|forro|sertanejo|ballet)/i,
-  crianca:           /(\bfilho\b|\bfilha\b|\bcriança\b|\bcrianças\b|\bbebê\b|\bbebe\b|\bbaby\b)/i,
-  bebe:              /(\bbebê\b|\bbebe\b|\bbaby\b)/i,
-  personal:          /\bpersonal\b/i,
-  gradeAulas:        /(quadro.{0,20}hor|grade.{0,20}hor|hor[aá]rio.{0,20}aula|hor[aá]rio.{0,20}coletiv|quadro.{0,20}aula|ver.{0,20}quadro|manda.{0,20}quadro|envia.{0,20}quadro)/i,
-  termosAulas:       /(aula|aulas|coletiv|fast training|fast.training|modalidade|modalidades|jump|zumba|combat|funcional|cardiomix|cardio mix|quadro.{0,20}hor|grade.{0,20}hor|ver.{0,15}quadro|manda.{0,15}quadro|quero.{0,15}quadro|cad[eê].{0,15}quadro)/i,
-  indicadoresGrade:  /(horário|hora|grade|quadro|quando|que dia|qual dia|dias|tabela|cronograma|tem.{0,10}aula|tem.{0,10}coletiv|que aulas|quais aulas|quais.{0,15}modalidade)/i,
-  termosPlanos:      /(plano|planos|mensalidade|mensalidades|preç|valor|valores|diferen|quanto.{0,15}custa|quanto.{0,15}fica|quanto.{0,15}é|quanto.{0,15}sai|quanto.{0,15}paga)/i,
-  indicadoresPedido: /(quer|queria|gostaria|preciso|me fala|me diz|me passa|me informa|me manda|me envia|me conta|conta sobre|fala sobre|saber|conhecer|informaç|opç|quais|que tipo|tem|tô interessad|sobre|me explica|como funciona|diferen[çc]|compara|comparar|qual|quanto|o que muda|o que inclui)/i,
-  // ✅ FIX v2: inclui variações de "vantagem", "diferença" e "o que tem em cada plano"
-  comparacaoTodos:   /(todos.{0,20}planos|comparaç|comparar|tabela.{0,20}planos|todos.{0,20}opç|ver todos|mostra todos|quais.{0,20}todos|entre todos|comparativo|vantagem.{0,30}(plano|cada|mensal|anual)|diferença.{0,30}(plano|cada|mensal|anual)|o que.{0,20}(tem|inclui|muda).{0,20}(plano|cada|mensal|anual)|qual.{0,20}(melhor|vantagem|diferença))/i,
-  fluxo:             /(fluxo|movimento|movimentad|lotad|chei|vazi|tranquil|fila|quantos alunos|horário.{0,20}vaz|horário.{0,20}tranquil|horário.{0,20}menos gente|menos movimentad|mais calmo|quando.{0,20}vaz|quando.{0,20}menos|horário.{0,20}cheio|horário.{0,20}lotad|mais movimentad|menos movimentad|mais vazi|mais cheio|horário.{0,20}pico|pico.{0,20}horário|quando.{0,20}cheio|quando.{0,20}lotad|horários.{0,20}movimentad)/i,
-  pagamentosInfo:    /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|pagar.{0,25}mensal.{0,25}(dinheiro|pix)|(dinheiro|pix).{0,25}mensal|mensalidade.{0,25}(dinheiro|pix)|mensal.{0,25}dinheiro|mensal.{0,25}pix|gympass|totalpass|tp2|gym.{0,5}pass)/i,
-  confirmacaoReenvio: /^(sim|s|yes|pode|pode ser|manda|manda sim|por favor|por fav|claro|quero|quero sim|tá|ta|ok|isso|manda novamente|manda de novo|envia|envia sim|sim por favor|sim, por favor|pode mandar|vai|bora|isso aí|claro que sim|sim pode|vai lá|sim please|já pedi|pode sim|manda aí|manda sim|quero ver|ver sim|sim quero|quero sim|bora ver|pode mandar sim|sim já pedi|já havia pedido|já pedi sim|mandei sim|vai lá|sim manda|sim, manda|sim pode mandar|com certeza|certeza|lógico|lógico que sim|pode mandar|sim por gentileza|sim, por gentileza)$/i,
-  crise:             /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
-  // ✅ FIX v3: saudações e termos de preço nunca são fora do escopo
-  saudacao:          /^(oi|olá|ola|bom dia|boa tarde|boa noite|tudo bem|tudo bom|e aí|eai|opa|hey|hi|hello|salve|boa|e então|boas|oi tudo|oi boa|boa dia|ola boa|olá boa)\b/i,
-  precoObvio:        /(quanto custa|quanto é|qual o preço|qual o valor|quanto fica|quanto sai|quanto paga|qual a mensalidade|tem promoção|tem desconto|tá caro|tá barato|valor da mensalidade|preço da mensalidade)/i,
+  crise:    /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
+  personal: /\bpersonal\b/i,
+  pagamentosInfo: /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|gympass|totalpass|tp2|gym.{0,5}pass)/i,
 };
 
 // ─── FUNÇÕES AUXILIARES ───────────────────────────────────────────────────────
@@ -95,77 +57,11 @@ function primeiroNome(nomeCompleto) {
   return nomeCompleto.trim().split(' ')[0];
 }
 
-function detectarModalidadeMencionada(texto) {
-  if (!texto) return null;
-  const lower = texto.toLowerCase();
-  for (const modalidade of TODAS_MODALIDADES) {
-    if (lower.includes(modalidade)) return modalidade;
-  }
-  return null;
+function ultimaSaidaMila(historico) {
+  return historico
+    .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
+    .slice(-1)[0] || null;
 }
-
-function modalidadeEConfirmada(modalidade) {
-  if (!modalidade) return true;
-  return MODALIDADES_CONFIRMADAS.some((m) => modalidade.includes(m) || m.includes(modalidade));
-}
-
-const REGEX_HORARIO_CURTO = /^(quais hor[aá]rios?|que hor[aá]rios?|qual hor[aá]rio|que horas?|quando tem|que dias?|quais dias?|qual dia|como [eé] o hor[aá]rio|tem hor[aá]rio|os hor[aá]rios?)\s*[?!.]?\s*$/i;
-const REGEX_CONTEXTO_COLETIVA = /(jump|combat|zumba|funcional|cardiomix|cardio mix|fast training|aula coletiva|aulas coletivas|modalidade|modalidades|30 minutos)/i;
-
-function ultimaMilaFalouDeColetiva(historico) {
-  const ultima = ultimaSaidaMila(historico);
-  if (!ultima?.conteudo) return false;
-  return REGEX_CONTEXTO_COLETIVA.test(ultima.conteudo);
-}
-
-function isPerguntaCurtaDeHorarioAposColetiva(texto, historico) {
-  if (!texto) return false;
-  return REGEX_HORARIO_CURTO.test(texto.trim()) && ultimaMilaFalouDeColetiva(historico);
-}
-
-const REGEX_NEGACAO_AULA = /n[aã]o\s+tem|n[aã]o\s+t[eê]m|n[aã]o\s+[eé]|sem\s+aula|n[aã]o\s+oferece|n[aã]o\s+h[aá]|n[aã]o\s+possui/i;
-const REGEX_EXTRAIR_MODALIDADE = /(?:tem\s+aula\s+de|aula\s+de|aulas?\s+de|modalidade\s+de)\s+([a-záàâãéêíóôõúüçñ][a-záàâãéêíóôõúüçñ\s\-]{1,30}?)\s*[?!.]?\s*$/i;
-const MODALIDADES_CONFIRMADAS_TEXTO = ['jump', 'combat', 'zumba', 'funcional', 'cardiomix', 'cardio mix'];
-
-function perguntaSobreModalidadeNaoConfirmada(texto) {
-  if (REGEX_NEGACAO_AULA.test(texto)) return false;
-  const match = REGEX_EXTRAIR_MODALIDADE.exec(texto.toLowerCase().trim());
-  if (!match) return false;
-  const modalidadePerguntada = match[1].trim();
-  const eConfirmada = MODALIDADES_CONFIRMADAS_TEXTO.some((m) =>
-    modalidadePerguntada.includes(m) || m.includes(modalidadePerguntada)
-  );
-  if (/coletiv/.test(modalidadePerguntada)) return false;
-  return !eConfirmada;
-}
-
-function detectarPerguntaAulas(texto) {
-  if (!texto) return false;
-  if (REGEX.contextoPlan.test(texto)) return false;
-  if (REGEX_NEGACAO_AULA.test(texto)) return false;
-  if (perguntaSobreModalidadeNaoConfirmada(texto)) return false;
-  return REGEX.termosAulas.test(texto) && REGEX.indicadoresGrade.test(texto);
-}
-
-function detectarPerguntaPlanos(texto) {
-  if (!texto) return false;
-  if (REGEX.avaliando.test(texto)) return false;
-  if (REGEX.gradeAulas.test(texto)) return false;
-  return REGEX.termosPlanos.test(texto) && REGEX.indicadoresPedido.test(texto);
-}
-
-// ✅ FIX v3: mensagem nunca deve cair em fora do escopo se for saudação, preço óbvio ou muito curta
-function devePassarPeloFiltroEscopo(texto) {
-  if (!texto) return false;
-  if (REGEX.saudacao.test(texto.trim())) return false;
-  if (REGEX.precoObvio.test(texto)) return false;
-  // Mensagens de até 4 palavras raramente são fora do escopo num contexto de academia
-  const palavras = texto.trim().split(/\s+/).length;
-  if (palavras <= 4) return false;
-  return true;
-}
-
-// ─── VERIFICAÇÕES DE HISTÓRICO ────────────────────────────────────────────────
 
 function tabelaJaFoiEnviada(historico) {
   return historico.some((m) =>
@@ -189,54 +85,6 @@ function fluxogramaJaFoiEnviado(historico) {
   return historico.some((m) => m.conteudo === '[fluxograma enviado]');
 }
 
-function todosOsPlanosCitados(historico) {
-  const texto = historico.map((m) => m.conteudo || '').join(' ').toLowerCase();
-  return (
-    /assinatura mensal|r\$\s*149/.test(texto) &&
-    /assinatura anual|r\$\s*119/.test(texto) &&
-    /econômic|econômica anual|r\$\s*95/.test(texto) &&
-    /clube\+|clube plus|12x|r\$\s*109/.test(texto)
-  );
-}
-
-function ultimaSaidaMila(historico) {
-  return historico
-    .filter((m) => m.direcao === 'saida' && m.origem === 'mila')
-    .slice(-1)[0] || null;
-}
-
-function ultimaMensagemMilaFoiOfertaDeQuadro(historico) {
-  const ultima = ultimaSaidaMila(historico);
-  if (!ultima?.conteudo) return false;
-  const c = ultima.conteudo;
-  const REGEX_OFERTA_QUADRO = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja|confira).{0,40}quadro.{0,30}(?:hor[aá]rios?|aulas?|coletivas?)/i;
-  const REGEX_OFERTA_QUADRO2 = /quadro.{0,30}(?:hor[aá]rios?|aulas?|coletivas?).{0,20}(?:\?|!)/i;
-  const PADROES_FIXOS = [TEXTO_REENVIO_QUADRO, 'quadro de horários!', 'quadro de aulas!'];
-  return REGEX_OFERTA_QUADRO.test(c) || REGEX_OFERTA_QUADRO2.test(c) || PADROES_FIXOS.some((p) => c.includes(p));
-}
-
-function ultimaMensagemMilaFoiOfertaDeFluxo(historico) {
-  const ultima = ultimaSaidaMila(historico);
-  if (!ultima?.conteudo) return false;
-  const c = ultima.conteudo;
-  const REGEX_OFERTA_FLUXO = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja).{0,40}(?:fluxograma|fluxo|movimento|lotaç|horários? mais vazi)/i;
-  const PADROES_FLUXO = [TEXTO_REENVIO_FLUXO, 'fluxograma antes', 'mande novamente', 'manda novamente'];
-  return REGEX_OFERTA_FLUXO.test(c) || c === TEXTO_REENVIO_FLUXO || PADROES_FLUXO.some(p => c.includes(p));
-}
-
-function ultimaMensagemMilaFoiOfertaDeTabela(historico) {
-  const ultima = ultimaSaidaMila(historico);
-  if (!ultima?.conteudo) return false;
-  const c = ultima.conteudo;
-  const REGEX_OFERTA_TABELA = /(?:quer(?:o|e)?|posso|mando|envio|te mando|te envio|mandar|enviar|ver|veja|confira).{0,40}(?:tabela|comparaç|planos?|opç)/i;
-  const PADROES_FIXOS = [
-    TEXTO_REENVIO_TABELA,
-    'tabela comparativa', 'tabela de planos', 'tabela dos planos',
-    'comparação completa', 'Qual delas faz mais sentido', 'Qual deles faz mais sentido'
-  ];
-  return REGEX_OFERTA_TABELA.test(c) || PADROES_FIXOS.some((p) => c.includes(p));
-}
-
 function dentroJanelaSilencio(lead) {
   if (lead.status !== 'transferido' || !lead.ultima_interacao_em) return false;
   const JANELA_HORAS = 2;
@@ -249,18 +97,6 @@ function diasDeSilencio(lead) {
   return (Date.now() - new Date(lead.ultima_interacao_em).getTime()) / (1000 * 60 * 60 * 24);
 }
 
-// ─── SELEÇÃO DE VARIAÇÃO ──────────────────────────────────────────────────────
-
-function selecionarVariacao(variacoes, historico) {
-  const ultima = ultimaSaidaMila(historico);
-  const ultimaResposta = ultima?.conteudo || '';
-  const idxUsado = variacoes.findIndex(v => v === ultimaResposta);
-  const proximoIdx = idxUsado >= 0
-    ? (idxUsado + 1) % variacoes.length
-    : 0;
-  return variacoes[proximoIdx];
-}
-
 // ─── REFORMULAÇÃO ANTI-REPETIÇÃO ─────────────────────────────────────────────
 
 async function reformularSeNecessario(textoOriginal, historico) {
@@ -268,7 +104,6 @@ async function reformularSeNecessario(textoOriginal, historico) {
   if (!ultima?.conteudo) return textoOriginal;
 
   const identico = ultima.conteudo.trim() === textoOriginal.trim();
-
   const normalize = (s) => s.toLowerCase().replace(/[^a-záàâãéêíóôõúüç\s]/g, '').trim();
   const wordsA = new Set(normalize(ultima.conteudo).split(/\s+/));
   const wordsB = normalize(textoOriginal).split(/\s+/);
@@ -279,22 +114,17 @@ async function reformularSeNecessario(textoOriginal, historico) {
   if (!identico && !muitoSimilar) return textoOriginal;
 
   console.log(`🔄 Reformulando (${identico ? 'idêntico' : 'similar ' + similaridade.toFixed(2)})`);
-
   try {
     const reformulada = await gerarResposta({
-      systemPrompt: `Você é Mila, atendente da Cia do Fitness. Reformule a mensagem abaixo com outras palavras, mantendo exatamente o mesmo conteúdo e informações. Seja natural, breve e no estilo WhatsApp brasileiro. NUNCA use as mesmas frases da mensagem anterior. Responda APENAS com a mensagem reformulada, sem explicações, sem aspas.
+      systemPrompt: `Você é Mila, atendente da Cia do Fitness. Reformule a mensagem abaixo com outras palavras, mantendo exatamente o mesmo conteúdo. Seja natural, breve e no estilo WhatsApp brasileiro. Responda APENAS com a mensagem reformulada, sem explicações, sem aspas.
 
-Mensagem anterior enviada:
-"${ultima.conteudo}"
-
-Mensagem a reformular:
-"${textoOriginal}"`,
+Mensagem anterior: "${ultima.conteudo}"
+Mensagem a reformular: "${textoOriginal}"`,
       historico: [],
-      mensagemNova: 'Reformule agora com palavras completamente diferentes.',
+      mensagemNova: 'Reformule agora.',
     });
     return reformulada || textoOriginal;
-  } catch (error) {
-    console.error('❌ Erro ao reformular:', error.message);
+  } catch (e) {
     return textoOriginal;
   }
 }
@@ -306,13 +136,86 @@ async function enviarTextoComVariacao(phone, lead, texto, historico) {
 }
 
 async function enviarMidiaComTexto(phone, lead, url, marker, texto, historico = []) {
-  const textoFinal = historico.length > 0
-    ? await reformularSeNecessario(texto, historico)
-    : texto;
+  const textoFinal = historico.length > 0 ? await reformularSeNecessario(texto, historico) : texto;
   await enviarImagem(phone, url, ' ');
   await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
   await enviarTexto(phone, textoFinal);
   await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: textoFinal });
+}
+
+// ─── CLASSIFICADOR UNIFICADO COM CONTEXTO ────────────────────────────────────
+// Substitui todos os classificadores isolados anteriores.
+// Lê mensagem atual + histórico recente e devolve UMA intenção.
+// Isso elimina decisões cegas que não entendem o contexto da conversa.
+
+async function classificarIntencaoComContexto(conteudo, historico) {
+  // Monta os últimas 6 mensagens do histórico para contexto
+  const ultimas = historico.slice(-6).map(m => {
+    const quem = m.origem === 'mila' ? 'Mila' : 'Lead';
+    return `${quem}: ${m.conteudo}`;
+  }).join('\n');
+
+  const resultado = await classificarIntencao(
+    conteudo,
+    'Qual é a intenção desta mensagem considerando o contexto da conversa?',
+    [
+      'FECHAR',
+      'ENCERRAR',
+      'ESCALAR',
+      'TABELA_COMPLETA',
+      'TABELA_BASICA',
+      'QUADRO_AULAS',
+      'FLUXO',
+      'DAYUSE',
+      'CRIANCA',
+      'BEBE',
+      'MEDICAMENTO',
+      'DANCA',
+      'MODALIDADE_NAO_TEMOS',
+      'CONTINUAR',
+    ],
+    `Você é um classificador de intenções para uma academia de ginástica. Analise a mensagem do lead considerando TODO o contexto da conversa abaixo.
+
+CONTEXTO DA CONVERSA (mais recente embaixo):
+${ultimas || '(início da conversa)'}
+
+MENSAGEM ATUAL DO LEAD: "${conteudo}"
+
+REGRAS DE CLASSIFICAÇÃO:
+
+FECHAR = lead quer assinar/matricular/pagar agora. Ex: "quero assinar", "como pago", "vou fechar", "quero me matricular".
+
+ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para de me chamar", "fechei em outro lugar".
+
+ESCALAR = lead pediu explicitamente falar com humano, quer agendar visita com hora marcada e confirmou, ou insistiu em desconto pela segunda vez.
+
+TABELA_COMPLETA = lead quer comparar TODOS os planos, ver vantagens/diferenças entre eles. Ex: "qual a vantagem de cada?", "me mostra todos os planos", "qual a diferença entre mensal e anual?", "o que muda entre os planos?", "qual é melhor?".
+
+TABELA_BASICA = lead pergunta sobre preço/planos de forma direta SEM ser day use ou visita. Ex: "quanto custa?", "qual o preço?", "me fala os planos", "tem mensalidade?". ATENÇÃO: se o lead mencionou "diária", "day use", "conhecer", "visitar" antes ou agora, use DAYUSE em vez disso.
+
+QUADRO_AULAS = lead quer ver o quadro/grade/horários das aulas coletivas. Ex: "qual o horário das aulas?", "me manda o quadro", "quando tem zumba?".
+
+FLUXO = lead quer saber sobre lotação, movimento ou horários mais vazios. Ex: "quando tá vazio?", "qual horário tem menos gente?", "tá cheio de manhã?".
+
+DAYUSE = lead quer fazer uma visita ou experimentar a academia por um dia (diária). Ex: "quero conhecer antes", "posso visitar?", "tem day use?", "qual o valor da diária?", "diária", "conhecer o ambiente". ATENÇÃO: mesmo que mencione preço, se for no contexto de experimentar/visitar, é DAYUSE.
+
+CRIANCA = lead pergunta sobre trazer filho, criança (não bebê).
+
+BEBE = lead pergunta sobre trazer bebê, nenê, recém-nascido.
+
+MEDICAMENTO = lead menciona remédio, injeção ou medicamento de qualquer tipo (Ozempic, Manjaro, Wegovy, etc).
+
+DANCA = lead pergunta sobre aula de dança (qualquer estilo).
+
+MODALIDADE_NAO_TEMOS = lead pergunta sobre uma modalidade específica que NÃO é: jump, combat, zumba, funcional, cardiomix. Ex: pilates, yoga, natação, muay thai, taekwondo, crossfit. ATENÇÃO: só use se a mensagem for claramente sobre uma modalidade. "Entendi", "ok", "certo" sozinhos NUNCA são modalidade.
+
+CONTINUAR = tudo que não se encaixa acima: saudações, perguntas gerais, dúvidas sobre estrutura, professores, estacionamento, formas de pagamento, objeções, qualquer coisa que o GPT livre deve responder com base na base de conhecimento.
+
+EM CASO DE DÚVIDA: use CONTINUAR.`
+  );
+
+  console.log(`🧠 Intenção classificada: ${resultado} para "${conteudo.slice(0, 60)}"`);
+  return resultado;
 }
 
 // ─── WEBHOOK PRINCIPAL ────────────────────────────────────────────────────────
@@ -328,12 +231,11 @@ export async function processarWebhook(webhookBody) {
 
   const phoneOrigem = webhookBody.phone || '';
   if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
-    console.log(`🔕 Mensagem de grupo ignorada (${phoneOrigem})`);
+    console.log(`🔕 Grupo ignorado (${phoneOrigem})`);
     return;
   }
 
   if (ehMensagemDeHumano(webhookBody)) {
-    console.log('👤 Mensagem manual de humano detectada.');
     const phone = webhookBody.phone;
     if (phone) {
       try {
@@ -341,7 +243,6 @@ export async function processarWebhook(webhookBody) {
         const conteudo = webhookBody.text?.message || '[mensagem do humano]';
         await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'humano', conteudo });
       } catch (error) {
-        console.error('Erro ao salvar mensagem do humano:', error.message);
         await gravarLog({ contexto: 'webhook', mensagem: 'Erro ao salvar mensagem do humano', telefone: webhookBody.phone, payload: { erro: error.message } });
       }
     }
@@ -349,10 +250,7 @@ export async function processarWebhook(webhookBody) {
   }
 
   const mensagem = parsearWebhook(webhookBody);
-  if (!mensagem) {
-    console.log('⚠️ Webhook ignorado (formato não reconhecido)');
-    return;
-  }
+  if (!mensagem) return;
 
   const { phone, nome, conteudo, tipo } = mensagem;
 
@@ -364,12 +262,7 @@ export async function processarWebhook(webhookBody) {
   const duplicataConteudo = await verificarDuplicataConteudo(phone, conteudo);
   if (duplicataConteudo) return;
 
-  if (isTestMode() && phone !== config.testPhoneNumber) {
-    console.log(`🧪 Modo teste ativo. Ignorando ${phone}.`);
-    return;
-  }
-
-  console.log(`⏳ Debounce iniciado para ${phone}: "${conteudo}"`);
+  if (isTestMode() && phone !== config.testPhoneNumber) return;
 
   if (filaDebounce.has(phone)) {
     const fila = filaDebounce.get(phone);
@@ -378,7 +271,6 @@ export async function processarWebhook(webhookBody) {
     fila.timer = setTimeout(async () => {
       const conteudoFinal = fila.conteudos.join(' ');
       filaDebounce.delete(phone);
-      console.log(`🔄 Debounce disparado para ${phone}: "${conteudoFinal}"`);
       await processarMensagem(phone, nome, conteudoFinal, tipo, webhookBody);
     }, DEBOUNCE_MS);
   } else {
@@ -386,7 +278,6 @@ export async function processarWebhook(webhookBody) {
     fila.timer = setTimeout(async () => {
       const conteudoFinal = fila.conteudos.join(' ');
       filaDebounce.delete(phone);
-      console.log(`🔄 Debounce disparado para ${phone}: "${conteudoFinal}"`);
       await processarMensagem(phone, nome, conteudoFinal, tipo, webhookBody);
     }, DEBOUNCE_MS);
     filaDebounce.set(phone, fila);
@@ -407,7 +298,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 2. Protocolo de crise
+  // 2. Protocolo de crise — regex puro, não precisa de contexto
   if (REGEX.crise.test(conteudo)) {
     try {
       await enviarTexto(phone, `Fico feliz que você compartilhou isso comigo. Pensamentos assim são pesados de carregar, e faz sentido querer mudar algo na vida.\n\nSe precisar conversar com alguém especializado, o CVV atende 24h pelo 188 ou pelo chat em cvv.org.br, de graça e com sigilo total.\n\nAqui na Cia, o treino pode ser um caminho pra se cuidar também. Mas o mais importante agora é você estar bem.`);
@@ -420,17 +311,20 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 3. Áudio ou imagem — resposta fixa
+  // 3. Áudio ou imagem
   if (tipo === 'audio' || tipo === 'imagem') {
     const variacoesAudio = [
       'Oi! Não consigo ouvir áudios por aqui, mas pode me mandar em texto que te respondo na hora! 😊',
       'Áudios não consigo processar, mas texto funciona perfeitamente! Me manda em texto. 😊',
       'Por aqui só consigo ler texto — manda sua mensagem escrita que respondo na hora!',
     ];
-    const respostasAudio = historicoBruto.filter(m => m.conteudo === '[audio]').length;
-    const respostaAudio = variacoesAudio[Math.min(respostasAudio, variacoesAudio.length - 1)];
-    await enviarTexto(phone, respostaAudio);
-    await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo: `[${tipo}]`, tipo });
+    try {
+      const historicoBrutoAudio = await buscarHistorico(lead.id, 20);
+      const respostasAudio = historicoBrutoAudio.filter(m => m.conteudo?.startsWith('[audio') || m.conteudo?.startsWith('[imagem')).length;
+      const respostaAudio = variacoesAudio[Math.min(respostasAudio, variacoesAudio.length - 1)];
+      await enviarTexto(phone, respostaAudio);
+      await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo: `[${tipo}]`, tipo });
+    } catch (e) { console.error('❌ Erro áudio:', e.message); }
     return;
   }
 
@@ -440,7 +334,6 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
       const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
       lead = leadReativado;
       await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
-      const systemPrompt = montarSystemPrompt();
       let historicoFormatado = [];
       if (retomandoContexto) {
         const historicoBruto = await buscarHistorico(lead.id, 20);
@@ -449,17 +342,16 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
       const mensagemFinal = retomandoContexto
         ? `[CONTEXTO INTERNO: Este lead já conversou há ${diasPassados} dias e voltou. Cumprimente naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`
         : conteudo;
-      const resposta = await gerarResposta({ systemPrompt, historico: historicoFormatado, mensagemNova: mensagemFinal });
+      const resposta = await gerarResposta({ systemPrompt: montarSystemPrompt(), historico: historicoFormatado, mensagemNova: mensagemFinal });
       await enviarTexto(phone, resposta);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
     } catch (error) {
       console.error('❌ Erro ao reabrir lead:', error.message);
-      await gravarLog({ contexto: 'webhook', mensagem: 'Erro ao reabrir lead', telefone: phone, leadId: lead.id, payload: { erro: error.message } });
     }
     return;
   }
 
-  // 5. Lead transferido — janela de silêncio ou humano ativo
+  // 5. Lead transferido
   if (dentroJanelaSilencio(lead)) {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
     return;
@@ -474,240 +366,177 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     console.log(`🔄 Lead ${lead.id} retomando com Mila.`);
   }
 
-  // 6. Salvar mensagem do lead
+  // 6. Salvar mensagem
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
-  // Buscar perfil estruturado do lead
-  let perfilLead = await buscarPerfil(lead.id);
-  if (!perfilLead) {
-    perfilLead = await criarPerfilVazio(lead.id);
-  }
-
-  // 7. GUARD DE OFERTA ATIVA
-  {
-    const historicoBrutoGuard = await buscarHistorico(lead.id, 20);
-    const ultimaMilaGuard = ultimaSaidaMila(historicoBrutoGuard);
-    const ultimaMilaTextoGuard = ultimaMilaGuard?.conteudo || '';
-
-    const eOfertaTabelaGuard = ultimaMensagemMilaFoiOfertaDeTabela(historicoBrutoGuard);
-    const eOfertaQuadroGuard = ultimaMensagemMilaFoiOfertaDeQuadro(historicoBrutoGuard);
-    const eOfertaFluxoGuard  = ultimaMensagemMilaFoiOfertaDeFluxo(historicoBrutoGuard);
-
-    if (eOfertaTabelaGuard || eOfertaQuadroGuard || eOfertaFluxoGuard) {
-      const confirmouGuard = await classificarIntencao(
-        conteudo,
-        'O lead está confirmando que quer receber o conteúdo que foi oferecido?',
-        ['SIM', 'NAO', 'INCERTO'],
-        `A Mila ofereceu: "${ultimaMilaTextoGuard.slice(0, 100)}"`
-      );
-      console.log(`🛡️ Guard oferta: ${confirmouGuard} para "${conteudo}"`);
-
-      if (eOfertaTabelaGuard && confirmouGuard === 'SIM') {
-        const usarCompleta = tabelaCompletaJaFoiEnviada(historicoBrutoGuard);
-        try {
-          if (usarCompleta) {
-            await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBrutoGuard);
-          } else {
-            await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBrutoGuard);
-          }
-        } catch (e) { console.error('❌ Guard tabela:', e.message); }
-        return;
-      }
-      if (eOfertaQuadroGuard && confirmouGuard === 'SIM') {
-        try {
-          await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBrutoGuard);
-        } catch (e) { console.error('❌ Guard quadro:', e.message); }
-        return;
-      }
-      if (eOfertaFluxoGuard && confirmouGuard === 'SIM') {
-        try {
-          await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBrutoGuard);
-        } catch (e) { console.error('❌ Guard fluxo:', e.message); }
-        return;
-      }
-    }
-  }
-
-  // 8. CLASSIFICAÇÃO UNIFICADA
-  const decisao = await classificarIntencao(
-    conteudo,
-    'Qual é a ação correta para esta mensagem?',
-    ['FECHAR', 'ENCERRAR', 'ESCALAR', 'CONTINUAR'],
-    `FECHAR = lead quer assinar/matricular/pagar agora. Ex: "quero assinar", "como pago", "vou fechar".
-ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para de me chamar", "fechei em outro lugar".
-ESCALAR = lead pediu explicitamente falar com humano, ou quer agendar visita com hora marcada E confirmou decisão, ou insistiu em desconto pela segunda vez.
-CONTINUAR = qualquer outra coisa: perguntas, dúvidas, objeções, saudações, reclamações. Em caso de dúvida use CONTINUAR.`
-  );
-  console.log(`🎯 Decisão: ${decisao} para "${conteudo.slice(0, 50)}"`);
-
+  // 7. Buscar histórico e perfil
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
-  if (decisao === 'FECHAR') {
+  let perfilLead = await buscarPerfil(lead.id);
+  if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
+
+  // 8. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
+  // Uma única chamada GPT que lê a mensagem + histórico recente.
+  // Substitui todos os classificadores isolados anteriores.
+  const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto);
+
+  // ─── ROTEAMENTO POR INTENÇÃO ──────────────────────────────────────────────
+
+  // FECHAR
+  if (intencao === 'FECHAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
     await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo });
     return;
   }
 
-  if (decisao === 'ENCERRAR') {
+  // ENCERRAR
+  if (intencao === 'ENCERRAR') {
     await encerrarLead(lead, 'lead expressou desinteresse');
     return;
   }
 
-  if (decisao === 'ESCALAR') {
+  // ESCALAR
+  if (intencao === 'ESCALAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
     await transferirParaHumano({ lead, motivo: 'gatilho detectado pelo classificador', resumo });
     return;
   }
 
-  // CONTINUAR
-  const silencio = diasDeSilencio(lead);
-  let mensagemComContexto = conteudo;
-  if (silencio >= 2) {
-    mensagemComContexto = `[CONTEXTO INTERNO: Lead ficou ${Math.floor(silencio)} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`;
-  }
-
-  const ePerguntaPersonal    = REGEX.personal.test(conteudo);
-  const ePerguntaInformativa = REGEX.pagamentosInfo.test(conteudo);
-
-  // 13–15. Confirmações de reenvio via GPT
-  const ultimaMilaSaida = ultimaSaidaMila(historicoBruto);
-  const ultimaMilaTexto = ultimaMilaSaida?.conteudo || '';
-
-  const eOfertaTabela = ultimaMensagemMilaFoiOfertaDeTabela(historicoBruto);
-  const eOfertaQuadro = ultimaMensagemMilaFoiOfertaDeQuadro(historicoBruto);
-  const eOfertaFluxo  = ultimaMensagemMilaFoiOfertaDeFluxo(historicoBruto);
-
-  let confirmouReenvio = 'INCERTO';
-  if (eOfertaTabela || eOfertaQuadro || eOfertaFluxo) {
-    confirmouReenvio = await classificarIntencao(
-      conteudo,
-      'O lead está confirmando que quer receber o conteúdo que foi oferecido?',
-      ['SIM', 'NAO', 'INCERTO'],
-      `A Mila ofereceu: "${ultimaMilaTexto.slice(0, 100)}"`
-    );
-    console.log(`🤔 Confirmação de reenvio: ${confirmouReenvio} para "${conteudo}"`);
-  }
-
-  if (eOfertaTabela && confirmouReenvio === 'SIM') {
-    console.log('📋 Reenvio de tabela confirmado.');
-    const usarCompleta = tabelaCompletaJaFoiEnviada(historicoBruto);
+  // TABELA_COMPLETA
+  if (intencao === 'TABELA_COMPLETA') {
     try {
-      await enviarMidiaComTexto(
-        phone, lead,
-        usarCompleta ? TABELA_COMPLETA_URL : TABELA_PLANOS_URL,
-        usarCompleta ? '[tabela completa enviada]' : '[tabela planos enviada]',
-        usarCompleta ? TEXTO_TABELA_COMPLETA : TEXTO_TABELA_PLANOS
-      );
-    } catch (error) { console.error('❌ Erro ao reenviar tabela:', error.message); }
+      if (!tabelaCompletaJaFoiEnviada(historicoBruto)) {
+        await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBruto);
+      } else {
+        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_TABELA, historicoBruto);
+      }
+    } catch (e) { console.error('❌ Tabela completa:', e.message); }
     return;
   }
 
-  if (eOfertaQuadro && confirmouReenvio === 'SIM') {
-    console.log('🗓️ Reenvio de quadro confirmado.');
+  // TABELA_BASICA
+  if (intencao === 'TABELA_BASICA') {
     try {
-      await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
-    } catch (error) { console.error('❌ Erro ao reenviar quadro:', error.message); }
+      if (!tabelaJaFoiEnviada(historicoBruto)) {
+        await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
+      } else {
+        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_TABELA, historicoBruto);
+      }
+    } catch (e) { console.error('❌ Tabela básica:', e.message); }
     return;
   }
 
-  if (eOfertaFluxo && confirmouReenvio === 'SIM') {
-    console.log('📊 Reenvio de fluxograma confirmado.');
+  // QUADRO_AULAS
+  if (intencao === 'QUADRO_AULAS') {
     try {
-      await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
-    } catch (error) { console.error('❌ Erro ao reenviar fluxograma:', error.message); }
+      if (!quadroAulasJaFoiEnviado(historicoBruto)) {
+        await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
+      } else {
+        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_QUADRO, historicoBruto);
+      }
+    } catch (e) { console.error('❌ Quadro aulas:', e.message); }
     return;
   }
 
-  // 15b. Medicamento para emagrecimento — detecção via GPT
-  const eMedicamento = await classificarIntencao(
-    conteudo,
-    'O lead está mencionando ou perguntando sobre algum medicamento, remédio, injeção ou tratamento médico?',
-    ['SIM', 'NAO'],
-    'SIM = menciona medicamento de emagrecimento, remédio, injeção, tratamento, droga, substância. Ex: Ozempic, Manjaro, Wegovy, Mounjaro, Saxenda, semaglutida, sibutramina, qualquer nome de remédio. NAO = qualquer outra coisa.'
-  );
-  if (eMedicamento === 'SIM') {
-    console.log('💊 Medicamento detectado — gerando resposta via GPT.');
+  // FLUXO
+  if (intencao === 'FLUXO') {
     try {
-      const respostasAnteriresMed = historicoBruto
-        .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
-          (m.conteudo.toLowerCase().includes('médico') || m.conteudo.toLowerCase().includes('medicamento') ||
-           m.conteudo.toLowerCase().includes('remédio') || m.conteudo.toLowerCase().includes('opinar')))
-        .map(m => `- "${m.conteudo}"`)
-        .join('\n') || 'nenhuma ainda';
+      if (!fluxogramaJaFoiEnviado(historicoBruto)) {
+        await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
+      } else {
+        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_FLUXO, historicoBruto);
+      }
+    } catch (e) { console.error('❌ Fluxograma:', e.message); }
+    return;
+  }
 
+  // DAYUSE
+  if (intencao === 'DAYUSE') {
+    const respostasDayUse = historicoBruto
+      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
+        (m.conteudo.toLowerCase().includes('diária') || m.conteudo.toLowerCase().includes('day use') || m.conteudo.toLowerCase().includes('r$ 30')))
+      .slice(-2)
+      .map(m => `- "${m.conteudo}"`)
+      .join('\n') || 'nenhuma ainda';
+
+    try {
+      const respostaDayUse = await gerarResposta({
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness.
+
+O lead quer saber sobre diária (day use) — experimentar a academia por um dia antes de se matricular.
+
+INFORMAÇÕES SOBRE DIÁRIA:
+- Valor: R$ 30,00
+- Inclui acesso completo à musculação e aulas coletivas no dia
+- Ótima opção pra quem quer conhecer o ambiente antes de decidir
+- Não precisa agendar — pode vir a qualquer momento no horário de funcionamento
+
+VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
+${respostasDayUse}
+
+Responda de forma natural e acolhedora. Máximo 2-3 frases. Tom casual de WhatsApp.
+Se já informou o valor antes, não repita — foque em convidar para vir conhecer.`,
+        historico: historicoFormatado,
+        mensagemNova: conteudo,
+      });
+      await enviarTexto(phone, respostaDayUse);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaDayUse });
+    } catch (e) { console.error('❌ Day use:', e.message); }
+    return;
+  }
+
+  // CRIANCA
+  if (intencao === 'CRIANCA') {
+    const resposta = 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.';
+    try {
+      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+    } catch (e) { console.error('❌ Criança:', e.message); }
+    return;
+  }
+
+  // BEBE
+  if (intencao === 'BEBE') {
+    const resposta = 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!';
+    try {
+      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+    } catch (e) { console.error('❌ Bebê:', e.message); }
+    return;
+  }
+
+  // MEDICAMENTO
+  if (intencao === 'MEDICAMENTO') {
+    const respostasAnteriresMed = historicoBruto
+      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
+        (m.conteudo.toLowerCase().includes('médico') || m.conteudo.toLowerCase().includes('medicamento') ||
+         m.conteudo.toLowerCase().includes('remédio') || m.conteudo.toLowerCase().includes('opinar')))
+      .map(m => `- "${m.conteudo}"`)
+      .join('\n') || 'nenhuma ainda';
+
+    try {
       const respostaMed = await gerarResposta({
         systemPrompt: `Você é Mila, atendente virtual da Cia do Fitness.
 
-O lead mencionou um medicamento (Ozempic, Manjaro, Wegovy, Mounjaro, Saxenda, sibutramina ou outro).
+O lead mencionou um medicamento.
 
 REGRA ABSOLUTA: Você NUNCA opina sobre medicamentos. Não recomenda, não contraindica, não compara.
 
-VOCÊ JÁ DISSE ISSO ANTES NESSA CONVERSA (NÃO REPITA):
+VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
 ${respostasAnteriresMed}
 
-Sua resposta DEVE:
-1. Dizer de forma natural que isso é com o médico — com palavras COMPLETAMENTE DIFERENTES das anteriores
-2. Pode mencionar treino ou convidar para falar da Cia, mas só se ainda não fez isso antes
-3. Máximo 2 frases. Tom casual de WhatsApp.
-4. Se já convidou para a academia antes, NÃO convide de novo — apenas encerre com o redirecionamento ao médico
-
-Estilos possíveis (escolha um diferente do que já usou):
-- Bem direto: "Isso é com o médico, não comigo."
-- Com empatia: "Entendo a curiosidade, mas remédio é assunto do seu médico."
-- Com leveza: "Aí eu não me meto não — isso é especialidade médica!"
-- Com contexto: "Cada organismo reage diferente, por isso só o médico pode orientar sobre isso."`,
+Responda com 1-2 frases completamente diferentes das anteriores dizendo que isso é com o médico. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
       await enviarTexto(phone, respostaMed);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaMed });
-    } catch (error) {
-      console.error('❌ Erro ao responder medicamento:', error.message);
-    }
+    } catch (e) { console.error('❌ Medicamento:', e.message); }
     return;
   }
 
-  // 16. Criança / bebê
-  const regexDetectouCrianca = REGEX.crianca.test(conteudo);
-  let gptDetectouCrianca = false;
-  let gptDetectouBebe = false;
-  if (!regexDetectouCrianca) {
-    const querCrianca = await classificarIntencao(
-      conteudo,
-      'O lead está perguntando sobre levar criança ou bebê para a academia?',
-      ['CRIANCA', 'BEBE', 'NAO'],
-      'CRIANCA = menciona filho, filha, criança, menor, garoto, garota, kid. BEBE = menciona bebê, bebe, baby, recém-nascido, nenê. NAO = outra coisa.'
-    );
-    gptDetectouCrianca = querCrianca === 'CRIANCA' || querCrianca === 'BEBE';
-    gptDetectouBebe = querCrianca === 'BEBE';
-  }
-  if (regexDetectouCrianca || gptDetectouCrianca) {
-    const eBebe = gptDetectouBebe || REGEX.bebe.test(conteudo);
-    const resposta = eBebe
-      ? 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!'
-      : 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.';
-    try {
-      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
-    } catch (error) { console.error('❌ Erro ao enviar resposta criança:', error.message); }
-    return;
-  }
-
-  // 17. Dança → Zumba
-  const regexDetectouDanca = REGEX.danca.test(conteudo);
-  let gptDetectouDanca = false;
-  if (!regexDetectouDanca) {
-    const querDanca = await classificarIntencao(
-      conteudo,
-      'O lead está perguntando sobre aulas de dança?',
-      ['SIM', 'NAO'],
-      'SIM = menciona dança, ritmo, coreografia, baile, funk, samba, forró, pagode, axé, reggaeton ou qualquer estilo de dança. NAO = outra coisa.'
-    );
-    gptDetectouDanca = querDanca === 'SIM';
-  }
-  if (regexDetectouDanca || gptDetectouDanca) {
-    console.log('💃 Dança detectada — redirecionando para Zumba.');
+  // DANCA
+  if (intencao === 'DANCA') {
     const respostasDanca = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         m.conteudo.toLowerCase().includes('zumba'))
@@ -731,27 +560,12 @@ Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
       });
       await enviarTexto(phone, respostaDanca);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaDanca });
-    } catch (error) { console.error('❌ Erro ao enviar resposta dança:', error.message); }
+    } catch (e) { console.error('❌ Dança:', e.message); }
     return;
   }
 
-  // 18. Modalidade não confirmada
-  let modalidadeMencionada = detectarModalidadeMencionada(conteudo);
-  if (!modalidadeMencionada) {
-    const eModalidade = await classificarIntencao(
-      conteudo,
-      'O lead está perguntando sobre uma modalidade de exercício, luta, dança ou atividade física que não seja musculação?',
-      ['SIM', 'NAO'],
-      'SIM = pergunta sobre qualquer aula, modalidade, atividade física, luta, dança. NAO = pergunta sobre estrutura, preço, horário geral, professor, ou musculação.'
-    );
-    if (eModalidade === 'SIM') {
-      modalidadeMencionada = conteudo.trim();
-    }
-  }
-  if (modalidadeMencionada && !modalidadeEConfirmada(modalidadeMencionada)) {
-    console.log(`🚫 Modalidade não confirmada: ${modalidadeMencionada}`);
-    const nomeModal = modalidadeMencionada.charAt(0).toUpperCase() + modalidadeMencionada.slice(1);
-
+  // MODALIDADE_NAO_TEMOS
+  if (intencao === 'MODALIDADE_NAO_TEMOS') {
     const respostasModais = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         (m.conteudo.toLowerCase().includes('não temos') || m.conteudo.toLowerCase().includes('não tem')))
@@ -761,121 +575,30 @@ Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
 
     try {
       const respostaModal = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre "${nomeModal}" que não oferecemos.
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre uma modalidade que não oferecemos.
 
 Nossas aulas coletivas são: Jump, Combat, Zumba, Funcional e CardioMix (todas Fast Training, 30 min).
 
-VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA ESSAS FRASES):
+VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
 ${respostasModais}
 
-Sua resposta deve:
-1. Dizer que não temos ${nomeModal} — com palavras DIFERENTES das respostas anteriores
-2. Mencionar nossas modalidades (mas só se ainda não mencionou antes nessa conversa)
-3. Opcionalmente oferecer o quadro de horários — mas só na primeira vez
-4. Máximo 2 frases. Tom casual de WhatsApp.
-
-Se já mencionou as modalidades antes: apenas diga que não temos ${nomeModal}, sem repetir a lista.`,
+Diga que não temos essa modalidade com palavras DIFERENTES das anteriores.
+Mencione nossas modalidades só se ainda não mencionou nessa conversa.
+Máximo 2 frases. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
       await enviarTexto(phone, respostaModal);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaModal });
-    } catch (error) { console.error('❌ Erro ao enviar resposta modalidade:', error.message); }
+    } catch (e) { console.error('❌ Modalidade:', e.message); }
     return;
   }
 
-  // 19. Fluxo de alunos
-  const regexDetectouFluxo = REGEX.fluxo.test(conteudo);
-  let gptDetectouFluxo = false;
-  if (!regexDetectouFluxo) {
-    const querFluxo = await classificarIntencao(
-      conteudo,
-      'O lead está perguntando sobre lotação, movimento ou horários mais vazios da academia?',
-      ['SIM', 'NAO'],
-      'SIM = quer saber quando a academia está vazia, cheia, tranquila, com menos gente. NAO = outra pergunta.'
-    );
-    gptDetectouFluxo = querFluxo === 'SIM';
-  }
-  if (regexDetectouFluxo || gptDetectouFluxo) {
-    try {
-      if (!fluxogramaJaFoiEnviado(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
-      } else {
-        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_FLUXO, historicoBruto);
-      }
-    } catch (error) { console.error('❌ Erro ao enviar fluxograma:', error.message); }
-    return;
-  }
-
-  // 20. Quadro de aulas
-  if (!ePerguntaPersonal && (detectarPerguntaAulas(conteudo) || isPerguntaCurtaDeHorarioAposColetiva(conteudo, historicoBruto))) {
-    try {
-      if (!quadroAulasJaFoiEnviado(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
-      } else {
-        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_QUADRO, historicoBruto);
-      }
-    } catch (error) { console.error('❌ Erro ao enviar quadro:', error.message); }
-    return;
-  }
-
-  // 21. Tabela completa — comparativo de todos os planos
-  // ✅ FIX v2: REGEX.comparacaoTodos agora captura "vantagem de cada", "diferença entre planos", etc.
-  if (!ePerguntaPersonal && (REGEX.comparacaoTodos.test(conteudo) || todosOsPlanosCitados(historicoBruto)) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
-    console.log('📊 Enviando tabela completa.');
-    try {
-      await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBruto);
-    } catch (error) { console.error('❌ Erro ao enviar tabela completa:', error.message); }
-    return;
-  }
-
-  // 22. Tabela básica de planos — threshold ALTO via GPT
-  // ✅ FIX v2: threshold agora inclui "vantagens" e "diferenças entre planos"
-  if (!tabelaJaFoiEnviada(historicoBruto) && !ePerguntaPersonal) {
-    const querPlanosAgora = await classificarIntencao(
-      conteudo,
-      'O lead está EXPLICITAMENTE pedindo para ver preços, valores, planos ou entender as vantagens/diferenças entre os planos neste momento?',
-      ['SIM', 'NAO'],
-      `SIM = lead quer saber quanto custa, ver os planos, entender vantagens ou diferenças entre planos. Exemplos: "quanto é?", "me fala sobre os planos", "qual o preço?", "tem mensalidade?", "me manda a tabela", "qual a vantagem de cada?", "qual a diferença entre mensal e anual?", "o que tem em cada plano?", "o que muda entre os planos?", "qual é melhor?", "quanto custa?", "quanto fica?".
-NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, modalidades, como funciona, horários, primeira vez na academia, taekwondo, pilates, ou qualquer assunto que não seja DIRETAMENTE sobre preço/plano/vantagem. Em caso de dúvida: NAO.`
-    );
-    if (querPlanosAgora === 'SIM') {
-      console.log('📋 Enviando tabela básica — lead pediu explicitamente.');
-      try {
-        await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
-      } catch (error) { console.error('❌ Erro ao enviar tabela básica:', error.message); }
-      return;
-    }
-  }
-
-  // ─── RESPOSTA GPT ─────────────────────────────────────────────────────────
-
-  // 22b. Fora do escopo
-  // ✅ FIX v3: saudações, preço óbvio e mensagens curtas NUNCA passam por esse filtro
-  // Isso resolve "ola bom dia" e "quanto custa?" caindo em fora do escopo
-  if (devePassarPeloFiltroEscopo(conteudo)) {
-    const foraDoEscopo = await classificarIntencao(
-      conteudo,
-      'Esta mensagem tem alguma relação com academia, treino, saúde, exercício, planos ou a Cia do Fitness?',
-      ['SIM', 'NAO'],
-      'SIM = qualquer coisa relacionada a academia, treino, exercício, saúde, corpo, planos, horários, estrutura, localização, preço, modalidades, professores. NAO = assunto completamente alheio: comida, relacionamento pessoal, política, entretenimento, perguntas filosóficas, etc.'
-    );
-    if (foraDoEscopo === 'NAO') {
-      console.log('🚫 Mensagem fora do escopo — respondendo com leveza.');
-      const respostasForaEscopo = [
-        'Sobre isso não sou especialista! Mas posso te ajudar com tudo sobre a Cia do Fitness.',
-        'Esse assunto foge do meu alcance! Minha especialidade é a Cia do Fitness mesmo.',
-        'Haha, esse não é meu forte! Me pergunta sobre a academia que aí eu mando bem.',
-      ];
-      const ultimaForaEscopo = ultimaSaidaMila(historicoBruto)?.conteudo || '';
-      const idxFora = respostasForaEscopo.findIndex(v => ultimaForaEscopo.includes(v.slice(0, 30)));
-      const respostaFora = respostasForaEscopo[(idxFora + 1) % respostasForaEscopo.length];
-      try {
-        await enviarTexto(phone, respostaFora);
-        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaFora });
-      } catch (e) { console.error('❌ Erro fora escopo:', e.message); }
-      return;
-    }
+  // CONTINUAR — GPT livre com base de conhecimento completa
+  const silencio = diasDeSilencio(lead);
+  let mensagemComContexto = conteudo;
+  if (silencio >= 2) {
+    mensagemComContexto = `[CONTEXTO INTERNO: Lead ficou ${Math.floor(silencio)} dias sem responder. Cumprimente calorosa e naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`;
   }
 
   let resposta;
@@ -903,7 +626,6 @@ NAO = qualquer outra coisa — perguntas sobre atividades, treino, estrutura, mo
       const historicoCompleto = [...historicoFormatado, { role: 'user', content: mensagemComContexto }, { role: 'assistant', content: resposta }];
       extrairEAtualizarPerfil(lead.id, historicoCompleto).catch((e) => console.error('❌ Extração de perfil:', e.message));
     }
-
   } catch (error) {
     console.error('❌ Erro ao enviar resposta:', error.message);
     await gravarLog({ contexto: 'zapi', mensagem: 'Erro ao enviar resposta', telefone: phone, leadId: lead.id, payload: { erro: error.message, resposta } });
