@@ -1,121 +1,133 @@
-import { enviarTexto, enviarImagem } from '../services/zapi.js';
-import { gravarLog } from '../services/supabase.js';
+import { enviarImagem, enviarTexto } from './zapiService.js';
+import { gravarLog } from './supabaseService.js';
 
-const BASE = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens';
+const BASE_IMG = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/';
 
-const IMAGENS = {
-  'no_attendance_9':                    `${BASE}/9%20dias%20sem%20presenca.png`,
-  'no_attendance_18':                   `${BASE}/18%20dias%20sem%20presenca.png`,
-  'member_birthday':                    `${BASE}/feliz%20aniversario.png`,
-  'enrollment_1':                       `${BASE}/seja%20muito%20bem%20vindo.png`,
-  'enrollment_30':                      `${BASE}/1%20mes%20com%20a%20gente.png`,
-  'contract_due_date_before':           `${BASE}/renove%20suas%20metas.png`,
-  'contract_due_date_after_5':          `${BASE}/5%20dias%20pos%20vencimento.png`,
-  'contract_due_date_after_30':         `${BASE}/30%20dias%20apos%20venc%20contr.png`,
-  'prospect_registration_7':            `${BASE}/vamos%20comecar.png`,
-  'prospect_visit':                     `${BASE}/pos%20visita%20oportunidade%201%20dia.png`,
-  'recurring_debit_charge_declined':    `${BASE}/atualize%20seu%20pagamento.png`,
-  'recurring_debit_charge_declined_7d': `${BASE}/atualize%20seu%20pagamento.png`,
-  'contract_cancelled_reactivation':    `${BASE}/que%20tal%20voltar.png`,
+// ─────────────────────────────────────────────
+// MAPEAMENTO: eventType do EVO → chave interna
+// ─────────────────────────────────────────────
+const GATILHOS = {
+  // Ausência
+  'crm.automation.absence_9_days':          'ausencia_9d',
+  'crm.automation.absence_18_days':         'ausencia_18d',
+
+  // Cobrança recusada
+  'crm.automation.charge_refused':          'cobranca_recusada',
+  'crm.automation.charge_refused_3_days':   'cobranca_recusada_3d',
+  'crm.automation.charge_refused_7_days':   'cobranca_recusada_7d',
+
+  // Vencimento
+  'crm.automation.contract_due_date_16':    'vencimento_16d_antes',
+  'crm.automation.contract_due_date_5':     'vencimento_5d_depois',
+  'crm.automation.contract_due_date_30':    'vencimento_30d_depois',
+
+  // Matrícula
+  'crm.automation.enrollment_1_day':        'matricula_1d',
+  'crm.automation.enrollment_30_days':      'matricula_30d',
+
+  // Aniversário
+  'crm.automation.birthday':                'aniversario',
+
+  // Oportunidade
+  'crm.automation.opportunity_visit_1_day': 'pos_visita',
+  'crm.automation.opportunity_7_days':      'oportunidade_7d',
+
+  // Reativação
+  'crm.automation.reactivation':            'reativacao',
 };
 
+// ─────────────────────────────────────────────
+// MENSAGENS
+// ─────────────────────────────────────────────
 const MENSAGENS = {
+  ausencia_9d:
+    'Oi {nome}! Sentimos sua falta por aqui. Tá tudo bem? O treino te espera quando você quiser voltar 💪',
 
-  'no_attendance_9':
-`Ei {nome}! Tudo bem? 😊 Aqui é a Mila, da Cia do Fitness. Sentimos sua falta por aqui nos últimos dias.. 😕 Espero que não seja o desânimo, hein? Lembre-se de que o seu objetivo continua te esperando. 💪 Bora retornar aos treinos? Estamos te esperando de braços abertos! 💛`,
+  ausencia_18d:
+    '{nome}, faz quase 3 semanas que você não aparece na Cia. A gente sente de verdade. Tem algo que esteja te impedindo? Pode contar com a gente.',
 
-  'no_attendance_18':
-`Oi {nome}! 💛 Notamos que você tem estado ausente já faz um tempinho e queríamos saber como podemos te ajudar a retomar o ritmo. 😕 Não esqueça o motivo pelo qual você começou: cada treino é um passo mais perto da versão de você que deseja se tornar. Estamos aqui para te apoiar. Vamos combinar de retornar? 💪`,
+  cobranca_recusada:
+    'Oi {nome}! Notamos que a cobrança da sua mensalidade não foi processada. Pode ser algo simples como limite ou dados desatualizados. Clica aqui para regularizar 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/',
 
-  'member_birthday':
-`Ei {nome}! Hoje é um dia muito especial e toda a equipe da Cia do Fitness quer te desejar um Feliz Aniversário! 🎉 Que seja um ano repleto de saúde, conquistas e muita disposição. Aproveite o seu dia, você merece! Um forte abraço de toda a nossa equipe. 💛🥳`,
+  cobranca_recusada_3d:
+    '{nome}, sua mensalidade ainda está em aberto. Para não perder seu acesso, regularize pelo link abaixo. Qualquer dúvida é só chamar! 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/',
 
-  'enrollment_1':
-`Ei {nome}, seja muito bem-vindo(a) à Cia do Fitness! 🎉 Estamos muito felizes por você ter nos escolhido. A nossa equipe se preocupa de verdade com o alcance dos seus objetivos e faremos de tudo para que você continue conosco por muito tempo. Qualquer dúvida, é só chamar. Bora treinar! 💪💛`,
+  cobranca_recusada_7d:
+    '{nome}, é o último aviso antes do seu acesso ser suspenso. Se precisar de ajuda para regularizar ou quiser conversar sobre outra forma de pagamento, estamos aqui. 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/',
 
-  'enrollment_30':
-`Ei {nome}! 💛 Já faz um mês que você começou essa jornada com a gente, e queremos saber: como você está se sentindo? 😊 Esse primeiro mês é o mais importante para criar o hábito. Se precisar de qualquer ajuste no treino ou tiver alguma dúvida, conte com a nossa equipe. Continue firme, os resultados vêm! 💪`,
+  vencimento_16d_antes:
+    'Oi {nome}! Seu plano vence em breve. Aproveite para renovar com antecedência e não ter nenhuma interrupção nos seus treinos. 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/',
 
-  'contract_due_date_before':
-`Oi {nome}! Aqui é da Cia do Fitness 💛 Passando para lembrar, com carinho, que o seu plano está chegando ao fim em breve. Para você não perder nenhum dia de treino e manter o ritmo dos seus resultados, já deixamos a renovação prontinha. Quer que a gente te passe as condições? 😊`,
+  vencimento_5d_depois:
+    '{nome}, seu plano venceu há 5 dias. Para continuar treinando sem interrupção, renove agora. 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/',
 
-  'contract_due_date_after_5':
-`Ei {nome}, tudo bem? 💛 Notamos que o seu plano na Cia do Fitness venceu há alguns dias e sentimos a sua falta por aqui. Não deixe a rotina te afastar dos seus objetivos! Que tal renovar e voltar a treinar com a gente? É rapidinho. Posso te ajudar com isso? 💪`,
+  vencimento_30d_depois:
+    'Oi {nome}! Quanto tempo. A gente sentiu sua falta na Cia do Fitness. Sem pressão, só queria saber como você tá. Se em algum momento quiser voltar a treinar, pode contar com a gente — temos condições especiais pra quem está retornando. Um abraço!',
 
-  'contract_due_date_after_30':
-`Oi {nome}! 💛 Já faz um mês que o seu plano venceu e a gente continua com a porta aberta esperando o seu retorno. Que tal não deixar os seus objetivos para depois? Preparamos uma condição especial para você voltar a treinar com a gente. Quer saber mais? Posso te explicar tudinho por aqui! 😊`,
+  matricula_1d:
+    'Oi {nome}, seja muito bem-vindo à Cia do Fitness! 🎉 Estamos felizes em ter você aqui. Qualquer dúvida sobre horários, aulas ou estrutura, é só chamar!',
 
-  'prospect_registration_7':
-`Ei {nome}! Tudo bem? 😊 Aqui é a Mila, da Cia do Fitness. Você demonstrou interesse em começar a treinar com a gente e eu não queria deixar essa vontade esfriar! 💪 Ainda dá tempo de dar o primeiro passo rumo aos seus objetivos. Quer que eu te passe as nossas condições especiais? 💛`,
+  matricula_30d:
+    '{nome}, já faz um mês que você está treinando com a gente! Como está sendo a experiência? Conta pra gente 💪',
 
-  'prospect_visit':
-`Ei {nome}! Aqui é a Mila, da Cia do Fitness 💛 Passando para agradecer pela sua visita ao nosso espaço! 🤩 Espero que tenha gostado da estrutura e das condições que apresentamos. Ficou com alguma dúvida? Estou por aqui para te ajudar a dar o primeiro passo. Esperamos te ver treinando com a gente em breve! 💪`,
+  aniversario:
+    'Feliz aniversário, {nome}! 🎂 Toda a equipe da Cia do Fitness deseja um dia incrível pra você. Hoje é dia de comemorar!',
 
-  'recurring_debit_charge_declined':
-`Oi {nome}! Aqui é da Cia do Fitness 💛 Notamos que a cobrança da sua mensalidade não foi processada. Para regularizar e continuar treinando sem interrupção, é só acessar o link abaixo 👇 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout`,
+  pos_visita:
+    'Oi {nome}! Foi um prazer te receber aqui na Cia do Fitness. O que achou? Ficou alguma dúvida? Posso te ajudar 😊',
 
-  'recurring_debit_charge_declined_7d':
-`Oi {nome}. Aqui é da Cia do Fitness 💛 Infelizmente não conseguimos processar o pagamento da sua mensalidade e já se passaram 7 dias desde a primeira tentativa. Para evitar que o seu cadastro seja encaminhado ao setor jurídico para cobrança formal, pedimos que regularize sua situação ainda hoje pelo link abaixo 👇 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout Qualquer dúvida, estamos à disposição para te ajudar a resolver isso da melhor forma.`,
+  oportunidade_7d:
+    '{nome}, vi que você se cadastrou na Cia do Fitness há uma semana. Ainda não fechou sua matrícula? Posso te ajudar a tirar qualquer dúvida ou agendar uma visita!',
 
-  'contract_cancelled_reactivation':
-`Ei {nome}! Tudo bem? 💛 Aqui é a Mila, da Cia do Fitness. Faz um tempo que você não treina com a gente e queremos muito te ver de volta! 🏋️ Sabemos que a rotina aperta, mas cuidar de você é o melhor investimento. Que tal recomeçar? Tenho uma condição especial de retorno pra te apresentar. Bora? 💪`,
-
+  reativacao:
+    'Oi {nome}! Faz um tempo que você não treina com a gente. Sentimos sua falta. Se quiser voltar, temos uma condição especial esperando por você. 🏋️ É só chamar!',
 };
 
-function identificarGatilho(eventType, eventContext) {
-  const moment   = eventContext?.moment;
-  const days     = parseInt(eventContext?.daysOffset || 0);
+// ─────────────────────────────────────────────
+// IMAGENS (Supabase Storage)
+// ─────────────────────────────────────────────
+const IMAGENS = {
+  ausencia_9d:           BASE_IMG + '9%20dias%20sem%20presenca.png',
+  ausencia_18d:          BASE_IMG + '18%20dias%20sem%20presenca.png',
+  cobranca_recusada:     BASE_IMG + 'atualize%20seu%20pagamento.png',
+  cobranca_recusada_3d:  BASE_IMG + 'atualize%20seu%20pagamento%203%20dias.png',
+  cobranca_recusada_7d:  BASE_IMG + 'atualize%20seu%20pagamento.png',
+  vencimento_16d_antes:  BASE_IMG + 'renove%20suas%20metas.png',
+  vencimento_5d_depois:  BASE_IMG + '5%20dias%20pos%20vencimento.png',
+  vencimento_30d_depois: BASE_IMG + '30%20dias%20apos%20venc%20contr.png',
+  matricula_1d:          BASE_IMG + 'seja%20muito%20bem%20vindo.png',
+  matricula_30d:         BASE_IMG + '1%20mes%20com%20a%20gente.png',
+  aniversario:           BASE_IMG + 'feliz%20aniversario.png',
+  pos_visita:            BASE_IMG + 'pos%20visita%20oportunidade%201%20dia.png',
+  oportunidade_7d:       BASE_IMG + 'vamos%20comecar.png',
+  reativacao:            BASE_IMG + 'que%20tal%20voltar.png',
+};
 
-  switch (eventType) {
-
-    case 'crm.automation.no_attendance':
-      if (days <= 12) return 'no_attendance_9';
-      return 'no_attendance_18';
-
-    case 'crm.automation.member_birthday':
-      return 'member_birthday';
-
-    case 'crm.automation.enrollment':
-      if (days <= 5) return 'enrollment_1';
-      return 'enrollment_30';
-
-    case 'crm.automation.contract_due_date':
-      if (moment === 'before') return 'contract_due_date_before';
-      if (days <= 10)          return 'contract_due_date_after_5';
-      return 'contract_due_date_after_30';
-
-    case 'crm.automation.prospect_registration':
-      return 'prospect_registration_7';
-
-    case 'crm.automation.prospect_visit':
-      return 'prospect_visit';
-
-    case 'crm.automation.recurring_debit_charge_declined':
-      // Modelo C: a cada recusa → mensagem padrão
-      // No 7º dia (automação #11 com delay=7) → mensagem jurídica
-      if (days >= 7) return 'recurring_debit_charge_declined_7d';
-      return 'recurring_debit_charge_declined';
-
-    case 'crm.automation.contract_cancelled':
-      return 'contract_cancelled_reactivation';
-
-    default:
-      return null;
-  }
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+function identificarGatilho(eventType) {
+  return GATILHOS[eventType] || null;
 }
 
 function extrairTelefone(body) {
-  const phone = body?.person?.phone || null;
-  if (!phone) return null;
-  const num = phone.replace(/\D/g, '');
-  if (num.length < 10) return null;
+  const raw =
+    body?.person?.cellphone ||
+    body?.person?.phone ||
+    body?.cellphone ||
+    body?.phone ||
+    '';
+  if (!raw) return null;
+  const num = raw.replace(/\D/g, '');
   return num.startsWith('55') ? num : `55${num}`;
 }
 
 function extrairNome(body) {
-  return body?.person?.nickName
-    || body?.person?.firstName
-    || 'você';
+  return (
+    body?.person?.nickName ||
+    body?.person?.firstName ||
+    'você'
+  );
 }
 
 function montarTexto(chave, nome) {
@@ -124,26 +136,22 @@ function montarTexto(chave, nome) {
   return template.replace(/{nome}/g, nome);
 }
 
+// ─────────────────────────────────────────────
+// HANDLER PRINCIPAL
+// ─────────────────────────────────────────────
 export async function processarEvoCRM(body, token) {
-  // LOG TEMPORÁRIO — remover após validar payload do EVO
-  console.log('🔍 EVO CRM payload recebido:', JSON.stringify(body, null, 2));
-  console.log('🔍 EVO CRM token recebido:', token);
-
-  // Valida token de segurança
-  if (token !== process.env.EVO_SECRET_TOKEN) {
+  if (token !== process.env.ZAPI_TOKEN) {
     console.log('⚠️ EVO CRM: token inválido');
     return;
   }
 
-  const eventType    = body?.eventType;
-  const eventContext = body?.eventContext;
-
+  const eventType = body?.eventType;
   if (!eventType) {
-    console.log('⚠️ EVO CRM: eventType não encontrado');
+    console.log('⚠️ EVO CRM: eventType ausente');
     return;
   }
 
-  const chave = identificarGatilho(eventType, eventContext);
+  const chave = identificarGatilho(eventType);
   if (!chave) {
     console.log(`ℹ️ EVO CRM: evento ignorado — ${eventType}`);
     return;
@@ -155,22 +163,20 @@ export async function processarEvoCRM(body, token) {
     return;
   }
 
-  const nome      = extrairNome(body);
-  const texto     = montarTexto(chave, nome);
-  const imagemUrl = IMAGENS[chave];
+  const nome    = extrairNome(body);
+  const texto   = montarTexto(chave, nome);
+  const imgUrl  = IMAGENS[chave];
 
   if (!texto) return;
 
   console.log(`📨 EVO CRM [${chave}] → ${nome} (${telefone})`);
 
   try {
-    if (imagemUrl) {
-      await enviarImagem(telefone, imagemUrl, ' ');
+    if (imgUrl) {
+      await enviarImagem(telefone, imgUrl, '');
       await new Promise(r => setTimeout(r, 1500));
-      await enviarTexto(telefone, texto);
-    } else {
-      await enviarTexto(telefone, texto);
     }
+    await enviarTexto(telefone, texto);
     console.log(`✅ EVO CRM enviado: ${nome} (${telefone})`);
   } catch (error) {
     console.error(`❌ EVO CRM erro:`, error.message);
