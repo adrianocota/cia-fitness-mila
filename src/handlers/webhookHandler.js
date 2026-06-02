@@ -144,43 +144,43 @@ async function enviarMidiaComTexto(phone, lead, url, marker, texto, historico = 
 }
 
 // ─── CLASSIFICADOR UNIFICADO COM CONTEXTO ────────────────────────────────────
-// Substitui todos os classificadores isolados anteriores.
-// Lê mensagem atual + histórico recente e devolve UMA intenção.
+// Uma única chamada GPT que lê a mensagem + histórico recente + status do lead.
 // Isso elimina decisões cegas que não entendem o contexto da conversa.
 
-async function classificarIntencaoComContexto(conteudo, historico) {
-  // Monta os últimas 6 mensagens do histórico para contexto
+async function classificarIntencaoComContexto(conteudo, historico, statusLead) {
   const ultimas = historico.slice(-6).map(m => {
     const quem = m.origem === 'mila' ? 'Mila' : 'Lead';
     return `${quem}: ${m.conteudo}`;
   }).join('\n');
 
-  const resultado = await classificarIntencao(
-    conteudo,
-    'Qual é a intenção desta mensagem considerando o contexto da conversa?',
-    [
-      'FECHAR',
-      'ENCERRAR',
-      'ESCALAR',
-      'TABELA_COMPLETA',
-      'TABELA_BASICA',
-      'QUADRO_AULAS',
-      'FLUXO',
-      'DAYUSE',
-      'CRIANCA',
-      'BEBE',
-      'MEDICAMENTO',
-      'DANCA',
-      'MODALIDADE_NAO_TEMOS',
-      'CONTINUAR',
-    ],
-    `Você é um classificador de intenções para uma academia de ginástica. Analise a mensagem do lead considerando TODO o contexto da conversa abaixo.
+  // Ajuste de intenções disponíveis conforme o status do lead
+  const intencoes = statusLead === 'matriculado'
+    ? ['ALUNO_DUVIDA', 'ENCERRAR', 'ESCALAR', 'CONTINUAR']
+    : [
+        'FECHAR',
+        'ENCERRAR',
+        'ESCALAR',
+        'TABELA_COMPLETA',
+        'TABELA_BASICA',
+        'QUADRO_AULAS',
+        'FLUXO',
+        'DAYUSE',
+        'CRIANCA',
+        'BEBE',
+        'MEDICAMENTO',
+        'DANCA',
+        'MODALIDADE_NAO_TEMOS',
+        'CONTINUAR',
+      ];
 
-CONTEXTO DA CONVERSA (mais recente embaixo):
-${ultimas || '(início da conversa)'}
+  const regrasAluno = statusLead === 'matriculado' ? `
+ATENÇÃO: Este lead já é um ALUNO MATRICULADO. Use apenas as intenções abaixo:
 
-MENSAGEM ATUAL DO LEAD: "${conteudo}"
-
+ALUNO_DUVIDA = aluno tem dúvida operacional (horário, aula, plano, cancelamento, etc).
+ENCERRAR = aluno pediu para parar de receber mensagens.
+ESCALAR = aluno pediu para falar com humano ou tem reclamação grave.
+CONTINUAR = qualquer outra coisa, inclusive saudações.
+` : `
 REGRAS DE CLASSIFICAÇÃO:
 
 FECHAR = lead quer assinar/matricular/pagar agora. Ex: "quero assinar", "como pago", "vou fechar", "quero me matricular".
@@ -211,10 +211,25 @@ MODALIDADE_NAO_TEMOS = lead pergunta sobre uma modalidade específica que NÃO �
 
 CONTINUAR = tudo que não se encaixa acima: saudações, perguntas gerais, dúvidas sobre estrutura, professores, estacionamento, formas de pagamento, objeções, qualquer coisa que o GPT livre deve responder com base na base de conhecimento.
 
-EM CASO DE DÚVIDA: use CONTINUAR.`
+EM CASO DE DÚVIDA: use CONTINUAR.`;
+
+  const resultado = await classificarIntencao(
+    conteudo,
+    'Qual é a intenção desta mensagem considerando o contexto da conversa?',
+    intencoes,
+    `Você é um classificador de intenções para uma academia de ginástica. Analise a mensagem do lead considerando TODO o contexto da conversa abaixo.
+
+STATUS DO LEAD: ${statusLead}
+
+CONTEXTO DA CONVERSA (mais recente embaixo):
+${ultimas || '(início da conversa)'}
+
+MENSAGEM ATUAL DO LEAD: "${conteudo}"
+
+${regrasAluno}`
   );
 
-  console.log(`🧠 Intenção classificada: ${resultado} para "${conteudo.slice(0, 60)}"`);
+  console.log(`🧠 Intenção classificada: ${resultado} para "${conteudo.slice(0, 60)}" (status: ${statusLead})`);
   return resultado;
 }
 
@@ -298,6 +313,8 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
+  const statusNormalizado = lead.status === 'ativo' ? 'mila' : (lead.status === 'transferido' ? 'humano' : lead.status);
+
   // 2. Protocolo de crise — regex puro, não precisa de contexto
   if (REGEX.crise.test(conteudo)) {
     try {
@@ -329,7 +346,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 4. Lead encerrado — reativar
-  if (lead.status === 'encerrado') {
+  if (statusNormalizado === 'encerrado') {
     try {
       const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
       lead = leadReativado;
@@ -351,13 +368,13 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 5. Lead transferido
+  // 5. Lead transferido — janela de silêncio ou humano ainda ativo
   if (dentroJanelaSilencio(lead)) {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
     return;
   }
 
-  if (lead.status === 'transferido') {
+  if (statusNormalizado === 'humano') {
     const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
     if (humanoAtivo) {
       await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
@@ -366,10 +383,55 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     console.log(`🔄 Lead ${lead.id} retomando com Mila.`);
   }
 
-  // 6. Salvar mensagem
+  // 6. Lead MATRICULADO — modo aluno
+  // Responde normalmente mas sem fluxo de vendas. Não envia tabelas, não escala para matrícula.
+  if (statusNormalizado === 'matriculado') {
+    await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
+
+    const historicoBruto = await buscarHistorico(lead.id, 20);
+    const historicoSemUltima = historicoBruto.slice(0, -1);
+    const historicoFormatado = formatarHistorico(historicoSemUltima);
+
+    const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, 'matriculado');
+
+    if (intencao === 'ENCERRAR') {
+      await encerrarLead(lead, 'aluno pediu para não receber mais mensagens');
+      return;
+    }
+
+    if (intencao === 'ESCALAR') {
+      await transferirParaHumano({ lead, motivo: 'aluno matriculado pediu atendimento humano' });
+      return;
+    }
+
+    // ALUNO_DUVIDA ou CONTINUAR — GPT no modo aluno
+    try {
+      const nomeAluno = lead.nome ? `, ${lead.nome}` : '';
+      const systemPromptAluno = montarSystemPrompt(null, 'aluno');
+      const resposta = await gerarResposta({
+        systemPrompt: systemPromptAluno,
+        historico: historicoFormatado,
+        mensagemNova: conteudo,
+      });
+      const delay = resposta.length < 80 ? 1000 : resposta.length < 200 ? 2000 : 3000;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      await enviarTexto(phone, resposta);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
+      console.log(`✅ Mila respondeu pro aluno ${lead.id} (modo aluno)`);
+    } catch (error) {
+      console.error('❌ Erro ao responder aluno:', error.message);
+    }
+    return;
+  }
+
+  // 7. Lead AGENDADO — prospect normal, mas respeitando contexto
+  // Trata exatamente como prospect. O contexto do histórico já carrega a informação de visita agendada.
+  // Não precisa de tratamento especial — o próprio GPT lerá o histórico e saberá que há visita marcada.
+
+  // 8. Salvar mensagem (todos os status restantes: mila, agendado, perdido)
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
-  // 7. Buscar histórico e perfil
+  // 9. Buscar histórico e perfil
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
@@ -377,10 +439,8 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   let perfilLead = await buscarPerfil(lead.id);
   if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
 
-  // 8. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
-  // Uma única chamada GPT que lê a mensagem + histórico recente.
-  // Substitui todos os classificadores isolados anteriores.
-  const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto);
+  // 10. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
+  const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, statusNormalizado);
 
   // ─── ROTEAMENTO POR INTENÇÃO ──────────────────────────────────────────────
 
@@ -595,6 +655,7 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
   }
 
   // CONTINUAR — GPT livre com base de conhecimento completa
+  // Para leads agendados, passa contexto implícito via histórico — o GPT saberá que há visita marcada.
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
