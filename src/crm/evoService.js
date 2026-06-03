@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 
 const EVO_BASE = 'https://evo-integracao-api.w12app.com.br/api/v1';
+const EVO_BASE_V2 = 'https://evo-integracao-api.w12app.com.br/api/v2';
 const EVO_DNS  = 'ciafitness';
 const EVO_TOKEN = '59EA5FCF-5622-483A-B720-2C180A57887A';
 const AUTH = 'Basic ' + Buffer.from(`${EVO_DNS}:${EVO_TOKEN}`).toString('base64');
@@ -36,13 +37,13 @@ function dataFutura(diasAFrente) {
 // HTTP
 // ─────────────────────────────────────────────
 
-async function evoGet(path) {
+async function evoGet(path, base = EVO_BASE) {
   await sleep(2000);
-  const res = await fetch(`${EVO_BASE}${path}`, { headers });
+  const res = await fetch(`${base}${path}`, { headers });
   if (res.status === 429) {
     console.log('⏳ Rate limit — aguardando 60s...');
     await sleep(60000);
-    return evoGet(path);
+    return evoGet(path, base);
   }
   if (!res.ok) {
     const txt = await res.text();
@@ -52,15 +53,19 @@ async function evoGet(path) {
 }
 
 // ─────────────────────────────────────────────
-// BUSCA PAGINADA
+// BUSCA PAGINADA — MEMBROS (v2)
+// status=1 → ativos | status=2 → inativos
 // ─────────────────────────────────────────────
 
-async function buscarMembros(filtros = '') {
+async function buscarMembros(filtros = '', status = 1) {
   const lista = [];
   let skip = 0;
   const take = 50;
   while (true) {
-    const lote = await evoGet(`/members?take=${take}&skip=${skip}&membershipStatus=Active${filtros}`);
+    const lote = await evoGet(
+      `/members?take=${take}&skip=${skip}&status=${status}${filtros}`,
+      EVO_BASE_V2
+    );
     if (!lote || lote.length === 0) break;
     lista.push(...lote);
     if (lote.length < take) break;
@@ -119,67 +124,56 @@ function mapear(m, gatilho, extra = {}) {
 // 1. 9 dias sem presença
 export async function gatilho_9diasSemPresenca() {
   const data = dataISO(9);
-  const lista = await buscarMembros(`&lastAccessStart=${data}&lastAccessEnd=${data}`);
+  const lista = await buscarMembros(`&lastAccessStart=${data}&lastAccessEnd=${data}`, 1);
   return lista.map(m => mapear(m, '9_dias_sem_presenca')).filter(m => m.telefone);
 }
 
 // 2. 18 dias sem presença
 export async function gatilho_18diasSemPresenca() {
   const data = dataISO(18);
-  const lista = await buscarMembros(`&lastAccessStart=${data}&lastAccessEnd=${data}`);
+  const lista = await buscarMembros(`&lastAccessStart=${data}&lastAccessEnd=${data}`, 1);
   return lista.map(m => mapear(m, '18_dias_sem_presenca')).filter(m => m.telefone);
 }
 
 // 3. Aniversariante hoje
 export async function gatilho_aniversario() {
   const md = dataMD(0);
-  const lista = await buscarMembros(`&birthdayStart=${md}&birthdayEnd=${md}`);
+  const lista = await buscarMembros(`&birthdayStart=${md}&birthdayEnd=${md}`, 1);
   return lista.map(m => mapear(m, 'aniversario')).filter(m => m.telefone);
 }
 
 // 4. 1 dia após matrícula
 export async function gatilho_1diaAposMatricula() {
   const data = dataISO(1);
-  const lista = await buscarMembros(`&registerDateStart=${data}&registerDateEnd=${data}`);
+  const lista = await buscarMembros(`&registerDateStart=${data}&registerDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '1_dia_apos_matricula')).filter(m => m.telefone);
 }
 
 // 5. 30 dias após matrícula
 export async function gatilho_30diasAposMatricula() {
   const data = dataISO(30);
-  const lista = await buscarMembros(`&registerDateStart=${data}&registerDateEnd=${data}`);
+  const lista = await buscarMembros(`&registerDateStart=${data}&registerDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '30_dias_apos_matricula')).filter(m => m.telefone);
 }
 
 // 6. 16 dias antes do vencimento
 export async function gatilho_16diasAntesVencimento() {
   const data = dataFutura(16);
-  const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`);
+  const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '16_dias_antes_vencimento', { vencimento: data })).filter(m => m.telefone);
 }
 
 // 7. 5 dias após vencimento
 export async function gatilho_5diasAposVencimento() {
   const data = dataISO(5);
-  const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`);
+  const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '5_dias_apos_vencimento', { vencimento: data })).filter(m => m.telefone);
 }
 
-// 8. 30 dias após vencimento — ex-aluno
+// 8. 30 dias após vencimento — ex-aluno (status=2 = inativo)
 export async function gatilho_30diasAposVencimento() {
   const data = dataISO(30);
-  const lista = [];
-  let skip = 0;
-  while (true) {
-    const lote = await evoGet(
-      `/members?take=50&skip=${skip}&membershipStatus=Inactive&endDateStart=${data}&endDateEnd=${data}`
-    );
-    if (!lote || lote.length === 0) break;
-    lista.push(...lote);
-    if (lote.length < 50) break;
-    skip += 50;
-    await sleep(2000);
-  }
+  const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 2);
   return lista.map(m => mapear(m, '30_dias_apos_vencimento')).filter(m => m.telefone);
 }
 
@@ -189,7 +183,7 @@ export async function gatilho_30diasAposVencimento() {
 
 async function buscarMembroPorId(idMember) {
   try {
-    const data = await evoGet(`/members/${idMember}`);
+    const data = await evoGet(`/members/${idMember}`, EVO_BASE_V2);
     return data;
   } catch {
     return null;
