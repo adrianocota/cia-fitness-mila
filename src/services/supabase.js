@@ -67,12 +67,7 @@ export async function verificarDuplicata(messageId) {
 
 /**
  * Verifica se a mesma mensagem (mesmo telefone + mesmo conteúdo) já foi
- * processada nos últimos JANELA_SEGUNDOS segundos. Defesa contra:
- *   - Retry do Z-API com messageId diferente
- *   - Webhooks duplicados que o dedup por ID não pega
- *   - Lead enviando a mesma mensagem 2x acidentalmente em rajada
- *
- * Retorna true se for duplicata recente, false se for nova.
+ * processada nos últimos JANELA_SEGUNDOS segundos.
  */
 const JANELA_DEDUP_SEGUNDOS = 10;
 
@@ -87,7 +82,6 @@ export async function verificarDuplicataConteudo(telefone, conteudo) {
 
     const limiteData = new Date(Date.now() - JANELA_DEDUP_SEGUNDOS * 1000).toISOString();
 
-    // 1. Procura registro recente com mesmo hash
     const { data: existente, error: erroBusca } = await supabase
       .from('mensagens_recentes')
       .select('id')
@@ -107,7 +101,6 @@ export async function verificarDuplicataConteudo(telefone, conteudo) {
       return true;
     }
 
-    // 2. Registra essa mensagem como processada
     const { error: erroInsert } = await supabase
       .from('mensagens_recentes')
       .insert({ telefone, hash_conteudo: hash });
@@ -122,6 +115,46 @@ export async function verificarDuplicataConteudo(telefone, conteudo) {
     return false;
   }
 }
+
+// ─── VERIFICAÇÃO COLABORADORES EVO ───────────────────────────────────────────
+
+const EVO_EMPLOYEES_URL = 'https://evo-integracao-api.w12app.com.br/api/v1/employees';
+const EVO_AUTH = 'Basic Y2lhZml0bmVzczo1OUVBNUZDRi01NjIyLTQ4M0EtQjcyMC0yQzE4MEE1Nzg4N0E=';
+
+let _cacheColaboradores = null;
+let _cacheTimestamp = 0;
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutos
+
+async function buscarTelefonesColaboradores() {
+  if (_cacheColaboradores && Date.now() - _cacheTimestamp < CACHE_TTL_MS) {
+    return _cacheColaboradores;
+  }
+  try {
+    const res = await fetch(`${EVO_EMPLOYEES_URL}?status=Ativo&take=100`, {
+      headers: { Authorization: EVO_AUTH },
+    });
+    if (!res.ok) throw new Error(`EVO employees status ${res.status}`);
+    const lista = await res.json();
+    _cacheColaboradores = lista
+      .map(e => (e.telephone || '').replace(/\D/g, ''))
+      .filter(t => t.length >= 8);
+    _cacheTimestamp = Date.now();
+    console.log(`📋 Cache colaboradores EVO atualizado: ${_cacheColaboradores.length} registros`);
+    return _cacheColaboradores;
+  } catch (err) {
+    console.warn('⚠️ Falha ao buscar colaboradores EVO (usando cache):', err.message);
+    return _cacheColaboradores || [];
+  }
+}
+
+export async function eColaboradorEvo(telefone) {
+  const numLimpo = telefone.replace(/\D/g, '');
+  const colaboradores = await buscarTelefonesColaboradores();
+  // Compara por sufixo para cobrir variações de DDI (55 + DDD + número)
+  return colaboradores.some(t => numLimpo.endsWith(t) || t.endsWith(numLimpo));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Busca um lead pelo número de telefone.
@@ -167,14 +200,20 @@ export async function criarLead({ telefone, nome, campanhaOrigem }) {
 
 /**
  * Busca ou cria um lead.
+ * Retorna null se o telefone pertencer a um colaborador do EVO.
  */
 export async function buscarOuCriarLead({ telefone, nome, campanhaOrigem }) {
-  let lead = await buscarLeadPorTelefone(telefone);
+  // Ignora colaboradores cadastrados no EVO
+  const isColaborador = await eColaboradorEvo(telefone);
+  if (isColaborador) {
+    console.log(`🔕 Telefone ${telefone} identificado como colaborador EVO — ignorado`);
+    return null;
+  }
 
+  let lead = await buscarLeadPorTelefone(telefone);
   if (!lead) {
     lead = await criarLead({ telefone, nome, campanhaOrigem });
   }
-
   return lead;
 }
 
