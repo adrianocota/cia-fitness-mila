@@ -48,6 +48,7 @@ const REGEX = {
   crise:    /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
   personal: /\bpersonal\b/i,
   pagamentosInfo: /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|gympass|totalpass|tp2|gym.{0,5}pass)/i,
+  confirmacaoReenvio: /^(sim|s|pode|manda|manda sim|quero|quero sim|claro|vai|ok|isso|por favor|pfv|pf|manda de novo|envia|envia sim)$/i,
 };
 
 // ─── FUNÇÕES AUXILIARES ───────────────────────────────────────────────────────
@@ -97,6 +98,51 @@ function diasDeSilencio(lead) {
   return (Date.now() - new Date(lead.ultima_interacao_em).getTime()) / (1000 * 60 * 60 * 24);
 }
 
+// ─── GUARD DE CONFIRMAÇÃO DE REENVIO ─────────────────────────────────────────
+// Roda ANTES do classificador. Se a última mensagem da Mila foi uma pergunta
+// de reenvio e o lead confirmou, reenvia a mídia e retorna true.
+
+async function tentarReenvio(phone, lead, conteudo, historicoBruto) {
+  if (!REGEX.confirmacaoReenvio.test(conteudo.trim())) return false;
+
+  const ultima = ultimaSaidaMila(historicoBruto);
+  if (!ultima?.conteudo) return false;
+
+  const msg = ultima.conteudo;
+
+  if (msg === TEXTO_REENVIO_TABELA) {
+    const url = tabelaCompletaJaFoiEnviada(historicoBruto) ? TABELA_COMPLETA_URL : TABELA_PLANOS_URL;
+    const marker = tabelaCompletaJaFoiEnviada(historicoBruto) ? '[tabela completa enviada]' : '[tabela planos enviada]';
+    const texto = tabelaCompletaJaFoiEnviada(historicoBruto) ? TEXTO_TABELA_COMPLETA : TEXTO_TABELA_PLANOS;
+    await enviarImagem(phone, url, ' ');
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
+    await enviarTexto(phone, texto);
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: texto });
+    console.log(`🔁 Reenvio tabela para lead ${lead.id}`);
+    return true;
+  }
+
+  if (msg === TEXTO_REENVIO_QUADRO) {
+    await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas reenviado]' });
+    await enviarTexto(phone, TEXTO_QUADRO_AULAS);
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
+    console.log(`🔁 Reenvio quadro aulas para lead ${lead.id}`);
+    return true;
+  }
+
+  if (msg === TEXTO_REENVIO_FLUXO) {
+    await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
+    await enviarTexto(phone, TEXTO_FLUXO);
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
+    console.log(`🔁 Reenvio fluxograma para lead ${lead.id}`);
+    return true;
+  }
+
+  return false;
+}
+
 // ─── REFORMULAÇÃO ANTI-REPETIÇÃO ─────────────────────────────────────────────
 
 async function reformularSeNecessario(textoOriginal, historico) {
@@ -144,8 +190,6 @@ async function enviarMidiaComTexto(phone, lead, url, marker, texto, historico = 
 }
 
 // ─── CLASSIFICADOR UNIFICADO COM CONTEXTO ────────────────────────────────────
-// Uma única chamada GPT que lê a mensagem + histórico recente + status do lead.
-// Isso elimina decisões cegas que não entendem o contexto da conversa.
 
 async function classificarIntencaoComContexto(conteudo, historico, statusLead) {
   const ultimas = historico.slice(-6).map(m => {
@@ -153,7 +197,6 @@ async function classificarIntencaoComContexto(conteudo, historico, statusLead) {
     return `${quem}: ${m.conteudo}`;
   }).join('\n');
 
-  // Ajuste de intenções disponíveis conforme o status do lead
   const intencoes = statusLead === 'matriculado'
     ? ['ALUNO_DUVIDA', 'ENCERRAR', 'ESCALAR', 'CONTINUAR']
     : [
@@ -384,7 +427,6 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   // 6. Lead MATRICULADO — modo aluno
-  // Responde normalmente mas sem fluxo de vendas. Não envia tabelas, não escala para matrícula.
   if (statusNormalizado === 'matriculado') {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
@@ -404,9 +446,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
       return;
     }
 
-    // ALUNO_DUVIDA ou CONTINUAR — GPT no modo aluno
     try {
-      const nomeAluno = lead.nome ? `, ${lead.nome}` : '';
       const systemPromptAluno = montarSystemPrompt(null, 'aluno');
       const resposta = await gerarResposta({
         systemPrompt: systemPromptAluno,
@@ -424,20 +464,20 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 7. Lead AGENDADO — prospect normal, mas respeitando contexto
-  // Trata exatamente como prospect. O contexto do histórico já carrega a informação de visita agendada.
-  // Não precisa de tratamento especial — o próprio GPT lerá o histórico e saberá que há visita marcada.
-
-  // 8. Salvar mensagem (todos os status restantes: mila, agendado, perdido)
+  // 7. Salvar mensagem (todos os status restantes: mila, agendado, perdido)
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
-  // 9. Buscar histórico e perfil
+  // 8. Buscar histórico e perfil
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
   let perfilLead = await buscarPerfil(lead.id);
   if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
+
+  // 9. GUARD DE REENVIO — roda ANTES do classificador
+  const reenvioFeito = await tentarReenvio(phone, lead, conteudo, historicoBruto);
+  if (reenvioFeito) return;
 
   // 10. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
   const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, statusNormalizado);
@@ -655,7 +695,6 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
   }
 
   // CONTINUAR — GPT livre com base de conhecimento completa
-  // Para leads agendados, passa contexto implícito via histórico — o GPT saberá que há visita marcada.
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
