@@ -7,7 +7,7 @@ import { processarWebhook } from './handlers/webhookHandler.js';
 import { rodarFollowups } from './handlers/followupHandler.js';
 import { verificarConexao } from './services/zapi.js';
 import { limparCache } from './lib/promptBuilder.js';
-import { rodarTransmissao } from './crm/crmHandler.js';
+import { rodarTransmissao, rodarCRM } from './crm/crmHandler.js';
 import { processarEvoCRM } from './crm/evoCrmWebhook.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -61,7 +61,6 @@ app.get('/dashboard', (req, res) => {
 // ================================================
 
 app.post('/evo-crm', async (req, res) => {
-  // Responde imediatamente para o EVO não dar timeout
   res.status(200).json({ received: true });
   try {
     console.log('📋 EVO CRM recebido:', JSON.stringify(req.body).slice(0, 200));
@@ -94,8 +93,14 @@ if (config.server.env === 'production') {
     catch (e) { console.error('❌ Follow-up:', e.message); }
   }, { timezone: 'America/Sao_Paulo' });
 
+  // CRM: diariamente às 08h
+  cron.schedule('0 8 * * *', async () => {
+    try { await rodarCRM(); }
+    catch (e) { console.error('❌ CRM:', e.message); }
+  }, { timezone: 'America/Sao_Paulo' });
+
   console.log('✅ Cron follow-up agendado (a cada hora)');
-  console.log('✅ CRM via webhook do EVO — sem cron necessário');
+  console.log('✅ Cron CRM agendado (08h diário)');
 } else {
   console.log('🧪 Development: crons desabilitados');
 }
