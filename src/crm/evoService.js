@@ -37,11 +37,11 @@ function dataFutura(diasAFrente) {
 // ─────────────────────────────────────────────
 
 async function evoGet(path) {
-  await sleep(500);
+  await sleep(2000);
   const res = await fetch(`${EVO_BASE}${path}`, { headers });
   if (res.status === 429) {
-    console.log('⏳ Rate limit — aguardando 30s...');
-    await sleep(30000);
+    console.log('⏳ Rate limit — aguardando 60s...');
+    await sleep(60000);
     return evoGet(path);
   }
   if (!res.ok) {
@@ -65,7 +65,7 @@ async function buscarMembros(filtros = '') {
     lista.push(...lote);
     if (lote.length < take) break;
     skip += take;
-    await sleep(500);
+    await sleep(2000);
   }
   return lista;
 }
@@ -79,7 +79,7 @@ async function buscarProspects(filtros = '') {
     lista.push(...lote);
     if (lote.length < 50) break;
     skip += 50;
-    await sleep(500);
+    await sleep(2000);
   }
   return lista;
 }
@@ -158,17 +158,16 @@ export async function gatilho_16diasAntesVencimento() {
   return lista.map(m => mapear(m, '16_dias_antes_vencimento', { vencimento: data })).filter(m => m.telefone);
 }
 
-// 7. 5 dias após vencimento (ainda com acesso ou recém-suspenso)
+// 7. 5 dias após vencimento
 export async function gatilho_5diasAposVencimento() {
   const data = dataISO(5);
   const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`);
   return lista.map(m => mapear(m, '5_dias_apos_vencimento', { vencimento: data })).filter(m => m.telefone);
 }
 
-// 8. 30 dias após vencimento — ex-aluno, sem link de pagamento
+// 8. 30 dias após vencimento — ex-aluno
 export async function gatilho_30diasAposVencimento() {
   const data = dataISO(30);
-  // busca membros inativos que venceram exatamente 30 dias atrás
   const lista = [];
   let skip = 0;
   while (true) {
@@ -179,7 +178,7 @@ export async function gatilho_30diasAposVencimento() {
     lista.push(...lote);
     if (lote.length < 50) break;
     skip += 50;
-    await sleep(500);
+    await sleep(2000);
   }
   return lista.map(m => mapear(m, '30_dias_apos_vencimento')).filter(m => m.telefone);
 }
@@ -188,7 +187,6 @@ export async function gatilho_30diasAposVencimento() {
 // GATILHOS — COBRANÇA RECUSADA
 // ─────────────────────────────────────────────
 
-// Helper: busca membro por ID para pegar o telefone
 async function buscarMembroPorId(idMember) {
   try {
     const data = await evoGet(`/members/${idMember}`);
@@ -198,7 +196,6 @@ async function buscarMembroPorId(idMember) {
   }
 }
 
-// Helper genérico para cobranças recusadas por data de vencimento
 async function cobrancasPorData(data) {
   const lista = [];
   let skip = 0;
@@ -210,7 +207,7 @@ async function cobrancasPorData(data) {
     lista.push(...lote);
     if (lote.length < 50) break;
     skip += 50;
-    await sleep(500);
+    await sleep(2000);
   }
 
   const resultado = [];
@@ -223,14 +220,14 @@ async function cobrancasPorData(data) {
       telefone,
       nome:   r.payerName ? r.payerName.split(' ')[0] : (membro ? nome(membro) : 'você'),
       valor:  r.ammount,
-      gatilho: null, // preenchido abaixo
+      gatilho: null,
     });
-    await sleep(300);
+    await sleep(2000);
   }
   return resultado;
 }
 
-// 9. Cobrança recusada — dia 0 (hoje)
+// 9. Cobrança recusada — dia 0
 export async function gatilho_cobrancaRecusada() {
   const lista = await cobrancasPorData(dataISO(0));
   return lista.map(r => ({ ...r, gatilho: 'cobranca_recusada' }));
