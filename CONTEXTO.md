@@ -234,9 +234,6 @@ Estas regras foram refinadas ao longo de dezenas de sessões e NÃO devem ser al
 
 ## COMO USAR ESTE ARQUIVO
 
-1. Abra nova conversa com o Claude
-2. Cole o conteúdo completo deste arquivo como primeira mensagem
-3. Descreva o que quer fazer
-4. O Claude terá contexto completo sem perguntas desnecessárias
+Este arquivo está nas instruções do Projeto Claude "Mila — Cia do Fitness".
+Toda conversa aberta dentro do projeto já carrega este contexto automaticamente.
 
-**Atualize este arquivo** após cada sessão produtiva — especialmente seções 13 (pendências) e 14 (histórico).
