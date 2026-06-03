@@ -109,6 +109,14 @@ ${base}
 ${oferta ? `OFERTA VIGENTE:\n${oferta}` : ''}`.trim();
 }
 
+// ─── LIMPAR CACHE ─────────────────────────────────────────────────────────────
+
+export function limparCache() {
+  _baseConhecimento = null;
+  _ofertaVigente = null;
+  console.log('🧹 Cache do promptBuilder limpo');
+}
+
 // ─── FORMATADOR DE HISTÓRICO ──────────────────────────────────────────────────
 
 /**
