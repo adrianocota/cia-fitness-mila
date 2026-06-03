@@ -253,6 +253,12 @@ ${regrasAluno}`
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
+  // Ignora mensagens enviadas pelo próprio número (disparos EVO, etc.)
+  if (webhookBody.fromMe === true) {
+    console.log('🔕 fromMe=true — disparo próprio ignorado');
+    return;
+  }
+
   const messageId = webhookBody.messageId || webhookBody.id || null;
   if (messageId) {
     const duplicata = await verificarDuplicata(messageId);
@@ -270,6 +276,7 @@ export async function processarWebhook(webhookBody) {
     if (phone) {
       try {
         const lead = await buscarOuCriarLead({ telefone: phone });
+        if (!lead) return; // colaborador EVO
         const conteudo = webhookBody.text?.message || '[mensagem do humano]';
         await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'humano', conteudo });
       } catch (error) {
@@ -327,6 +334,9 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     await gravarLog({ contexto: 'supabase', mensagem: 'Erro ao buscar ou criar lead', telefone: phone, payload: { erro: error.message } });
     return;
   }
+
+  // Colaborador EVO identificado — ignora silenciosamente
+  if (!lead) return;
 
   const statusNormalizado = lead.status === 'ativo' ? 'mila' : (lead.status === 'transferido' ? 'humano' : lead.status);
 
@@ -653,6 +663,6 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
     }
   } catch (error) {
     console.error('❌ Erro ao enviar resposta:', error.message);
-    await gravarLog({ contexto: 'zapi', mensagem: 'Erro ao enviar resposta', telefone: phone, leadId: lead.id, payload: { erro: error.message, resposta } });
+    await gravarLog({ contexto: 'zapi', mensagem: 'Erro ao enviar resposta', telefone: phone, leadId: lead.id, payload: { erro: error.message } });
   }
 }
