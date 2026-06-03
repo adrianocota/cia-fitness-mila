@@ -42,7 +42,7 @@ const TEXTO_REENVIO_FLUXO   = 'Já te enviei o fluxograma antes. Quer que eu man
 const DEBOUNCE_MS = 2500;
 const filaDebounce = new Map();
 
-// ─── REGEX MÍNIMOS — apenas para casos que não precisam de contexto ───────────
+// ─── REGEX MÍNIMOS ────────────────────────────────────────────────────────────
 
 const REGEX = {
   crise:    /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
@@ -99,8 +99,6 @@ function diasDeSilencio(lead) {
 }
 
 // ─── GUARD DE CONFIRMAÇÃO DE REENVIO ─────────────────────────────────────────
-// Roda ANTES do classificador. Se a última mensagem da Mila foi uma pergunta
-// de reenvio e o lead confirmou, reenvia a mídia e retorna true.
 
 async function tentarReenvio(phone, lead, conteudo, historicoBruto) {
   if (!REGEX.confirmacaoReenvio.test(conteudo.trim())) return false;
@@ -200,20 +198,9 @@ async function classificarIntencaoComContexto(conteudo, historico, statusLead) {
   const intencoes = statusLead === 'matriculado'
     ? ['ALUNO_DUVIDA', 'ENCERRAR', 'ESCALAR', 'CONTINUAR']
     : [
-        'FECHAR',
-        'ENCERRAR',
-        'ESCALAR',
-        'TABELA_COMPLETA',
-        'TABELA_BASICA',
-        'QUADRO_AULAS',
-        'FLUXO',
-        'DAYUSE',
-        'CRIANCA',
-        'BEBE',
-        'MEDICAMENTO',
-        'DANCA',
-        'MODALIDADE_NAO_TEMOS',
-        'CONTINUAR',
+        'FECHAR', 'ENCERRAR', 'ESCALAR', 'TABELA_COMPLETA', 'TABELA_BASICA',
+        'QUADRO_AULAS', 'FLUXO', 'DAYUSE', 'CRIANCA', 'BEBE', 'MEDICAMENTO',
+        'DANCA', 'MODALIDADE_NAO_TEMOS', 'CONTINUAR',
       ];
 
   const regrasAluno = statusLead === 'matriculado' ? `
@@ -227,34 +214,19 @@ CONTINUAR = qualquer outra coisa, inclusive saudações.
 REGRAS DE CLASSIFICAÇÃO:
 
 FECHAR = lead quer assinar/matricular/pagar agora. Ex: "quero assinar", "como pago", "vou fechar", "quero me matricular".
-
 ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para de me chamar", "fechei em outro lugar".
-
 ESCALAR = lead pediu explicitamente falar com humano, quer agendar visita com hora marcada e confirmou, ou insistiu em desconto pela segunda vez.
-
-TABELA_COMPLETA = lead quer comparar TODOS os planos, ver vantagens/diferenças entre eles. Ex: "qual a vantagem de cada?", "me mostra todos os planos", "qual a diferença entre mensal e anual?", "o que muda entre os planos?", "qual é melhor?".
-
-TABELA_BASICA = lead pergunta sobre preço/planos de forma direta SEM ser day use ou visita. Ex: "quanto custa?", "qual o preço?", "me fala os planos", "tem mensalidade?". ATENÇÃO: se o lead mencionou "diária", "day use", "conhecer", "visitar" antes ou agora, use DAYUSE em vez disso.
-
-QUADRO_AULAS = lead quer ver o quadro/grade/horários das aulas coletivas. Ex: "qual o horário das aulas?", "me manda o quadro", "quando tem zumba?".
-
-FLUXO = lead quer saber sobre lotação, movimento ou horários mais vazios. Ex: "quando tá vazio?", "qual horário tem menos gente?", "tá cheio de manhã?".
-
-DAYUSE = lead quer fazer uma visita ou experimentar a academia por um dia (diária). Ex: "quero conhecer antes", "posso visitar?", "tem day use?", "qual o valor da diária?", "diária", "conhecer o ambiente". ATENÇÃO: mesmo que mencione preço, se for no contexto de experimentar/visitar, é DAYUSE.
-
+TABELA_COMPLETA = lead quer comparar TODOS os planos. Ex: "qual a vantagem de cada?", "me mostra todos os planos", "qual é melhor?".
+TABELA_BASICA = lead pergunta sobre preço/planos de forma direta SEM ser day use. Ex: "quanto custa?", "qual o preço?".
+QUADRO_AULAS = lead quer ver o quadro/grade/horários das aulas coletivas.
+FLUXO = lead quer saber sobre lotação ou horários mais vazios.
+DAYUSE = lead quer visitar ou experimentar por um dia. Ex: "quero conhecer antes", "tem day use?", "qual a diária?".
 CRIANCA = lead pergunta sobre trazer filho, criança (não bebê).
-
 BEBE = lead pergunta sobre trazer bebê, nenê, recém-nascido.
-
-MEDICAMENTO = lead menciona remédio, injeção ou medicamento de qualquer tipo (Ozempic, Manjaro, Wegovy, etc).
-
-DANCA = lead pergunta sobre aula de dança (qualquer estilo).
-
-MODALIDADE_NAO_TEMOS = lead pergunta sobre uma modalidade específica que NÃO é: jump, combat, zumba, funcional, cardiomix. Ex: pilates, yoga, natação, muay thai, taekwondo, crossfit. ATENÇÃO: só use se a mensagem for claramente sobre uma modalidade. "Entendi", "ok", "certo" sozinhos NUNCA são modalidade.
-
-CONTINUAR = tudo que não se encaixa acima: saudações, perguntas gerais, dúvidas sobre estrutura, professores, estacionamento, formas de pagamento, objeções, qualquer coisa que o GPT livre deve responder com base na base de conhecimento.
-
-EM CASO DE DÚVIDA: use CONTINUAR.`;
+MEDICAMENTO = lead menciona remédio ou medicamento de qualquer tipo.
+DANCA = lead pergunta sobre aula de dança.
+MODALIDADE_NAO_TEMOS = lead pergunta sobre modalidade que não oferecemos (pilates, yoga, natação, etc).
+CONTINUAR = tudo que não se encaixa acima. EM CASO DE DÚVIDA: use CONTINUAR.`;
 
   const resultado = await classificarIntencao(
     conteudo,
@@ -358,7 +330,14 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
 
   const statusNormalizado = lead.status === 'ativo' ? 'mila' : (lead.status === 'transferido' ? 'humano' : lead.status);
 
-  // 2. Protocolo de crise — regex puro, não precisa de contexto
+  // 2. Lead CRM — silêncio total, só salva a mensagem
+  if (lead.status === 'crm') {
+    await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
+    console.log(`🔕 Lead ${lead.id} em modo CRM — mensagem salva, sem resposta`);
+    return;
+  }
+
+  // 3. Protocolo de crise — regex puro, não precisa de contexto
   if (REGEX.crise.test(conteudo)) {
     try {
       await enviarTexto(phone, `Fico feliz que você compartilhou isso comigo. Pensamentos assim são pesados de carregar, e faz sentido querer mudar algo na vida.\n\nSe precisar conversar com alguém especializado, o CVV atende 24h pelo 188 ou pelo chat em cvv.org.br, de graça e com sigilo total.\n\nAqui na Cia, o treino pode ser um caminho pra se cuidar também. Mas o mais importante agora é você estar bem.`);
@@ -371,7 +350,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 3. Áudio ou imagem
+  // 4. Áudio ou imagem
   if (tipo === 'audio' || tipo === 'imagem') {
     const variacoesAudio = [
       'Oi! Não consigo ouvir áudios por aqui, mas pode me mandar em texto que te respondo na hora! 😊',
@@ -388,7 +367,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 4. Lead encerrado — reativar
+  // 5. Lead encerrado — reativar
   if (statusNormalizado === 'encerrado') {
     try {
       const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
@@ -411,7 +390,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 5. Lead transferido — janela de silêncio ou humano ainda ativo
+  // 6. Lead transferido — janela de silêncio ou humano ainda ativo
   if (dentroJanelaSilencio(lead)) {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
     return;
@@ -426,7 +405,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     console.log(`🔄 Lead ${lead.id} retomando com Mila.`);
   }
 
-  // 6. Lead MATRICULADO — modo aluno
+  // 7. Lead MATRICULADO — modo aluno
   if (statusNormalizado === 'matriculado') {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
@@ -464,10 +443,10 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 7. Salvar mensagem (todos os status restantes: mila, agendado, perdido)
+  // 8. Salvar mensagem (todos os status restantes: mila, agendado, perdido)
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
-  // 8. Buscar histórico e perfil
+  // 9. Buscar histórico e perfil
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
@@ -475,36 +454,32 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   let perfilLead = await buscarPerfil(lead.id);
   if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
 
-  // 9. GUARD DE REENVIO — roda ANTES do classificador
+  // 10. GUARD DE REENVIO — roda ANTES do classificador
   const reenvioFeito = await tentarReenvio(phone, lead, conteudo, historicoBruto);
   if (reenvioFeito) return;
 
-  // 10. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
+  // 11. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
   const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, statusNormalizado);
 
   // ─── ROTEAMENTO POR INTENÇÃO ──────────────────────────────────────────────
 
-  // FECHAR
   if (intencao === 'FECHAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
     await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo });
     return;
   }
 
-  // ENCERRAR
   if (intencao === 'ENCERRAR') {
     await encerrarLead(lead, 'lead expressou desinteresse');
     return;
   }
 
-  // ESCALAR
   if (intencao === 'ESCALAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
     await transferirParaHumano({ lead, motivo: 'gatilho detectado pelo classificador', resumo });
     return;
   }
 
-  // TABELA_COMPLETA
   if (intencao === 'TABELA_COMPLETA') {
     try {
       if (!tabelaCompletaJaFoiEnviada(historicoBruto)) {
@@ -516,7 +491,6 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // TABELA_BASICA
   if (intencao === 'TABELA_BASICA') {
     try {
       if (!tabelaJaFoiEnviada(historicoBruto)) {
@@ -528,7 +502,6 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // QUADRO_AULAS
   if (intencao === 'QUADRO_AULAS') {
     try {
       if (!quadroAulasJaFoiEnviado(historicoBruto)) {
@@ -540,7 +513,6 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // FLUXO
   if (intencao === 'FLUXO') {
     try {
       if (!fluxogramaJaFoiEnviado(historicoBruto)) {
@@ -552,32 +524,18 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // DAYUSE
   if (intencao === 'DAYUSE') {
     const respostasDayUse = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         (m.conteudo.toLowerCase().includes('diária') || m.conteudo.toLowerCase().includes('day use') || m.conteudo.toLowerCase().includes('r$ 30')))
-      .slice(-2)
-      .map(m => `- "${m.conteudo}"`)
-      .join('\n') || 'nenhuma ainda';
-
+      .slice(-2).map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaDayUse = await gerarResposta({
         systemPrompt: `Você é Mila, atendente da Cia do Fitness.
-
-O lead quer saber sobre diária (day use) — experimentar a academia por um dia antes de se matricular.
-
-INFORMAÇÕES SOBRE DIÁRIA:
-- Valor: R$ 30,00
-- Inclui acesso completo à musculação e aulas coletivas no dia
-- Ótima opção pra quem quer conhecer o ambiente antes de decidir
-- Não precisa agendar — pode vir a qualquer momento no horário de funcionamento
-
-VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
-${respostasDayUse}
-
-Responda de forma natural e acolhedora. Máximo 2-3 frases. Tom casual de WhatsApp.
-Se já informou o valor antes, não repita — foque em convidar para vir conhecer.`,
+O lead quer saber sobre diária (day use).
+INFORMAÇÕES: Valor R$ 30,00. Inclui musculação e aulas coletivas. Não precisa agendar.
+VOCÊ JÁ DISSE (NÃO REPITA): ${respostasDayUse}
+Máximo 2-3 frases. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
@@ -587,45 +545,32 @@ Se já informou o valor antes, não repita — foque em convidar para vir conhec
     return;
   }
 
-  // CRIANCA
   if (intencao === 'CRIANCA') {
-    const resposta = 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.';
     try {
-      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+      await enviarTextoComVariacao(phone, lead, 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.', historicoBruto);
     } catch (e) { console.error('❌ Criança:', e.message); }
     return;
   }
 
-  // BEBE
   if (intencao === 'BEBE') {
-    const resposta = 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!';
     try {
-      await enviarTextoComVariacao(phone, lead, resposta, historicoBruto);
+      await enviarTextoComVariacao(phone, lead, 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!', historicoBruto);
     } catch (e) { console.error('❌ Bebê:', e.message); }
     return;
   }
 
-  // MEDICAMENTO
   if (intencao === 'MEDICAMENTO') {
     const respostasAnteriresMed = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         (m.conteudo.toLowerCase().includes('médico') || m.conteudo.toLowerCase().includes('medicamento') ||
          m.conteudo.toLowerCase().includes('remédio') || m.conteudo.toLowerCase().includes('opinar')))
-      .map(m => `- "${m.conteudo}"`)
-      .join('\n') || 'nenhuma ainda';
-
+      .map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaMed = await gerarResposta({
         systemPrompt: `Você é Mila, atendente virtual da Cia do Fitness.
-
-O lead mencionou um medicamento.
-
-REGRA ABSOLUTA: Você NUNCA opina sobre medicamentos. Não recomenda, não contraindica, não compara.
-
-VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
-${respostasAnteriresMed}
-
-Responda com 1-2 frases completamente diferentes das anteriores dizendo que isso é com o médico. Tom casual de WhatsApp.`,
+O lead mencionou um medicamento. REGRA ABSOLUTA: nunca opina sobre medicamentos.
+VOCÊ JÁ DISSE (NÃO REPITA): ${respostasAnteriresMed}
+Responda com 1-2 frases dizendo que isso é com o médico. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
@@ -635,26 +580,17 @@ Responda com 1-2 frases completamente diferentes das anteriores dizendo que isso
     return;
   }
 
-  // DANCA
   if (intencao === 'DANCA') {
     const respostasDanca = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         m.conteudo.toLowerCase().includes('zumba'))
-      .slice(-2)
-      .map(m => `- "${m.conteudo}"`)
-      .join('\n') || 'nenhuma ainda';
-
+      .slice(-2).map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaDanca = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre aula de dança.
-
-Não temos aulas de dança específicas, mas temos Zumba — que mistura dança e exercício em 30 min de Fast Training.
-
-VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
-${respostasDanca}
-
-Responda com 1-2 frases diferentes das anteriores. Tom casual de WhatsApp.
-Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre dança.
+Não temos dança específica, mas temos Zumba no Fast Training.
+VOCÊ JÁ DISSE (NÃO REPITA): ${respostasDanca}
+1-2 frases. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
@@ -664,26 +600,16 @@ Se já ofereceu o quadro de horários antes, não ofereça de novo.`,
     return;
   }
 
-  // MODALIDADE_NAO_TEMOS
   if (intencao === 'MODALIDADE_NAO_TEMOS') {
     const respostasModais = historicoBruto
       .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
         (m.conteudo.toLowerCase().includes('não temos') || m.conteudo.toLowerCase().includes('não tem')))
-      .slice(-3)
-      .map(m => `- "${m.conteudo}"`)
-      .join('\n') || 'nenhuma ainda';
-
+      .slice(-3).map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaModal = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre uma modalidade que não oferecemos.
-
-Nossas aulas coletivas são: Jump, Combat, Zumba, Funcional e CardioMix (todas Fast Training, 30 min).
-
-VOCÊ JÁ DISSE ISSO ANTES (NÃO REPITA):
-${respostasModais}
-
-Diga que não temos essa modalidade com palavras DIFERENTES das anteriores.
-Mencione nossas modalidades só se ainda não mencionou nessa conversa.
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre modalidade que não oferecemos.
+Nossas aulas: Jump, Combat, Zumba, Funcional e CardioMix (Fast Training, 30 min).
+VOCÊ JÁ DISSE (NÃO REPITA): ${respostasModais}
 Máximo 2 frases. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
@@ -694,7 +620,7 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
     return;
   }
 
-  // CONTINUAR — GPT livre com base de conhecimento completa
+  // CONTINUAR — GPT livre
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
@@ -716,7 +642,6 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
     const tamanho = resposta.length;
     const delay = tamanho < 80 ? 1000 : tamanho < 200 ? 2000 : 3000;
     await new Promise(resolve => setTimeout(resolve, delay));
-
     await enviarTexto(phone, resposta);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
     console.log(`✅ Mila respondeu pro lead ${lead.id} (delay: ${delay}ms)`);
