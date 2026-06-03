@@ -45,6 +45,16 @@ app.post('/trigger-followup', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.post('/trigger-crm', async (req, res) => {
+  if (req.headers['x-secret-token'] !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const resultado = await rodarCRM();
+    res.json({ status: 'ok', resultado });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/admin/cache/clear', (req, res) => {
   if (req.headers['x-secret-token'] !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
   try { limparCache(); res.json({ status: 'ok', timestamp: new Date().toISOString() }); }
@@ -57,7 +67,6 @@ app.get('/dashboard', (req, res) => {
 
 // ================================================
 // ROTA CRM — WEBHOOK DO EVO
-// O EVO chama esta rota quando um gatilho dispara
 // ================================================
 
 app.post('/evo-crm', async (req, res) => {
