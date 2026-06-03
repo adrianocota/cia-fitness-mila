@@ -1,6 +1,8 @@
 import { montarMensagem } from './mensagens.js';
 import { enviarTexto, enviarImagem } from '../services/zapi.js';
 import { gravarLog } from '../services/supabase.js';
+import { buscarOuCriarLead } from '../services/supabase.js';
+import { supabase } from '../services/supabase.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -42,8 +44,8 @@ function extrairLead(body) {
   return {
     telefone,
     nome:       p.nickName || p.firstName || 'você',
-    instrutor:  null, // EVO não envia instrutor no payload
-    valor:      null, // não usado nos textos atuais
+    instrutor:  null,
+    valor:      null,
     vencimento: ctx.moment === 'before'
       ? new Date(Date.now() + 16 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       : null,
@@ -60,9 +62,9 @@ export async function processarEvoCRM(body, token) {
     return;
   }
 
-  const lead = extrairLead(body);
+  const leadDados = extrairLead(body);
 
-  if (!lead) {
+  if (!leadDados) {
     console.log(`⚠️ Telefone ausente — gatilho ${gatilho} ignorado`);
     await gravarLog({
       contexto: 'evo-crm',
@@ -72,7 +74,7 @@ export async function processarEvoCRM(body, token) {
     return;
   }
 
-  const msg = montarMensagem(gatilho, lead);
+  const msg = montarMensagem(gatilho, leadDados);
 
   if (!msg) {
     console.log(`⚠️ montarMensagem retornou null para gatilho ${gatilho}`);
@@ -81,18 +83,31 @@ export async function processarEvoCRM(body, token) {
 
   try {
     if (msg.imagem) {
-      await enviarImagem(lead.telefone, msg.imagem, '');
+      await enviarImagem(leadDados.telefone, msg.imagem, '');
       await sleep(1500);
     }
-    await enviarTexto(lead.telefone, msg.texto);
-    console.log(`✅ [${gatilho}] ${lead.nome} (${lead.telefone})`);
+    await enviarTexto(leadDados.telefone, msg.texto);
+    console.log(`✅ [${gatilho}] ${leadDados.nome} (${leadDados.telefone})`);
   } catch (e) {
-    console.error(`❌ Erro ao enviar [${gatilho}] ${lead.telefone}:`, e.message);
+    console.error(`❌ Erro ao enviar [${gatilho}] ${leadDados.telefone}:`, e.message);
     await gravarLog({
       contexto: 'evo-crm',
       mensagem: `Erro ao enviar gatilho ${gatilho}`,
-      telefone: lead.telefone,
+      telefone: leadDados.telefone,
       payload: { erro: e.message, gatilho },
     });
+    return;
+  }
+
+  // Registra o lead no Supabase com status 'crm' para silenciar respostas
+  try {
+    const lead = await buscarOuCriarLead({ telefone: leadDados.telefone, nome: leadDados.nome });
+    await supabase.from('leads').update({
+      status: 'crm',
+      ultima_interacao_em: new Date().toISOString(),
+    }).eq('id', lead.id);
+    console.log(`📌 Lead ${lead.id} marcado como crm`);
+  } catch (e) {
+    console.error(`❌ Erro ao marcar lead como crm:`, e.message);
   }
 }
