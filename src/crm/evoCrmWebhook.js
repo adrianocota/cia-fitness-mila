@@ -1,8 +1,7 @@
 import { montarMensagem } from './mensagens.js';
 import { enviarTexto, enviarImagem } from '../services/zapi.js';
-import { gravarLog } from '../services/supabase.js';
-import { buscarOuCriarLead } from '../services/supabase.js';
-import { supabase } from '../services/supabase.js';
+import { gravarLog, buscarOuCriarLead } from '../services/supabase.js';
+import supabase from '../services/supabase.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -10,7 +9,6 @@ function resolverGatilho(body) {
   const { eventType, eventContext } = body;
   const days = eventContext?.daysOffset ?? 0;
   const moment = eventContext?.moment ?? '';
-
   switch (eventType) {
     case 'crm.automation.no_attendance':
       return days <= 12 ? '9_dias_sem_presenca' : '18_dias_sem_presenca';
@@ -36,11 +34,9 @@ function resolverGatilho(body) {
 function extrairLead(body) {
   const p = body.person ?? {};
   const ctx = body.eventContext ?? {};
-
   let telefone = (p.phone ?? '').replace(/\D/g, '');
   if (!telefone) return null;
   if (!telefone.startsWith('55')) telefone = '55' + telefone;
-
   return {
     telefone,
     nome:       p.nickName || p.firstName || 'você',
@@ -56,14 +52,12 @@ export async function processarEvoCRM(body, token) {
   console.log('📋 EVO CRM payload completo:', JSON.stringify(body));
 
   const gatilho = resolverGatilho(body);
-
   if (!gatilho) {
     console.log(`⚠️ eventType não mapeado: ${body.eventType} — ignorado`);
     return;
   }
 
   const leadDados = extrairLead(body);
-
   if (!leadDados) {
     console.log(`⚠️ Telefone ausente — gatilho ${gatilho} ignorado`);
     await gravarLog({
@@ -75,7 +69,6 @@ export async function processarEvoCRM(body, token) {
   }
 
   const msg = montarMensagem(gatilho, leadDados);
-
   if (!msg) {
     console.log(`⚠️ montarMensagem retornou null para gatilho ${gatilho}`);
     return;
