@@ -12,21 +12,18 @@ const zapi = axios.create({
 
 function calcularDelayDigitacao(message) {
   const chars = message.length;
-  // delayTyping é em segundos (1-15)
   const segundos = Math.min(Math.max(Math.ceil(chars / 60), 1), 8);
   return segundos;
 }
 
 export async function enviarTexto(phone, message) {
   const delayTyping = calcularDelayDigitacao(message);
-
   try {
     const response = await zapi.post('/send-text', {
       phone,
       message,
       delayTyping,
     });
-
     console.log(`📤 Mensagem enviada pra ${phone} (digitando: ${delayTyping}s)`);
     return response.data;
   } catch (error) {
@@ -42,7 +39,6 @@ export async function enviarImagem(phone, imageUrl, caption = '') {
       image: imageUrl,
       caption,
     });
-
     console.log(`🖼️ Imagem enviada pra ${phone}`);
     return response.data;
   } catch (error) {
@@ -57,7 +53,6 @@ export async function enviarMensagemGrupo(groupId, message) {
       phone: groupId,
       message,
     });
-
     console.log(`📤 Mensagem enviada pro grupo ${groupId}`);
     return response.data;
   } catch (error) {
@@ -70,7 +65,6 @@ export async function verificarConexao() {
   try {
     const response = await zapi.get('/status');
     const conectado = response.data?.connected === true;
-
     console.log(`🔌 Status Z-API: ${conectado ? 'CONECTADO' : 'DESCONECTADO'}`);
     return conectado;
   } catch (error) {
@@ -80,12 +74,22 @@ export async function verificarConexao() {
 }
 
 export function ehMensagemDeHumano(webhook) {
-  return webhook?.fromMe === true && webhook?.isStatusReply !== true;
+  // fromMe=true = mensagem enviada pelo número da instância.
+  // Só registra como "humano" se vier com participantPhone diferente do phone
+  // principal — indica recepcionista enviando de outro dispositivo/sessão.
+  // Mensagens da própria Mila chegam sem participantPhone preenchido.
+  if (!webhook) return false;
+  if (webhook.isStatusReply || webhook.isGroup) return false;
+  if (webhook.fromMe !== true) return false;
+
+  const participante = webhook.participantPhone || webhook.participant || '';
+  if (participante && participante !== webhook.phone) return true;
+
+  return false;
 }
 
 export function parsearWebhook(webhook) {
   if (!webhook || typeof webhook !== 'object') return null;
-
   if (webhook.isStatusReply || webhook.isGroup) return null;
   if (webhook.fromMe) return null;
 
