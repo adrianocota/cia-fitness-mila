@@ -1,9 +1,10 @@
 // ================================================
 // MENSAGENS DOS GATILHOS CRM
-// Variáveis disponíveis: {nome}, {instrutor}, {vencimento}, {valor}
+// Variáveis: {nome}, {instrutor}, {vencimento}, {valor}, {linkPagamento}
 // ================================================
 
 const BASE_IMG = 'https://hyvmfmynyjpocdtjayml.supabase.co/storage/v1/object/public/Imagens/';
+const LINK_GENERICO = 'https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/';
 
 export const MENSAGENS = {
 
@@ -38,7 +39,7 @@ export const MENSAGENS = {
   },
 
   '5_dias_apos_vencimento': {
-    texto: `{nome}, seu plano venceu há 5 dias. Para continuar treinando sem interrupção, renove agora. 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/`,
+    texto: `{nome}, seu plano venceu há 5 dias. Para continuar treinando sem interrupção, renove agora pelo link abaixo 👇\n{linkPagamento}`,
     imagem: BASE_IMG + '5%20dias%20pos%20vencimento.png',
   },
 
@@ -48,17 +49,17 @@ export const MENSAGENS = {
   },
 
   'cobranca_recusada': {
-    texto: `Oi {nome}! Notamos que a cobrança da sua mensalidade não foi processada. Pode ser algo simples como limite ou dados desatualizados. Clica aqui para regularizar 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/`,
+    texto: `Oi {nome}! Notamos que a cobrança da sua mensalidade não foi processada. Pode ser algo simples como limite ou dados desatualizados. Regularize pelo link abaixo 👇\n{linkPagamento}`,
     imagem: BASE_IMG + 'atualize%20seu%20pagamento.png',
   },
 
   'cobranca_recusada_3d': {
-    texto: `{nome}, sua mensalidade ainda está em aberto. Para não perder seu acesso, regularize pelo link abaixo. Qualquer dúvida é só chamar! 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/`,
+    texto: `{nome}, sua mensalidade ainda está em aberto. Para não perder seu acesso, regularize pelo link abaixo. Qualquer dúvida é só chamar! 👇\n{linkPagamento}`,
     imagem: BASE_IMG + 'atualize%20seu%20pagamento%203%20dias.png',
   },
 
   'cobranca_recusada_7d': {
-    texto: `{nome}, é o último aviso antes do seu acesso ser suspenso. Se precisar de ajuda para regularizar ou quiser conversar sobre outra forma de pagamento, estamos aqui. 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/`,
+    texto: `{nome}, é o último aviso antes do seu acesso ser suspenso. Se precisar de ajuda para regularizar ou quiser conversar sobre outra forma de pagamento, estamos aqui 👇\n{linkPagamento}`,
     imagem: BASE_IMG + 'atualize%20seu%20pagamento.png',
   },
 
@@ -87,12 +88,13 @@ export function montarMensagem(gatilho, dados) {
   if (!template) return null;
 
   let texto = template.texto;
-  texto = texto.replace(/{nome}/g,       dados.nome      || 'você');
-  texto = texto.replace(/{instrutor}/g,  dados.instrutor || 'a equipe');
-  texto = texto.replace(/{valor}/g,      dados.valor
+  texto = texto.replace(/{nome}/g,         dados.nome      || 'você');
+  texto = texto.replace(/{instrutor}/g,    dados.instrutor || 'a equipe');
+  texto = texto.replace(/{linkPagamento}/g, dados.linkPagamento || LINK_GENERICO);
+  texto = texto.replace(/{valor}/g,        dados.valor
     ? Number(dados.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
     : '');
-  texto = texto.replace(/{vencimento}/g, dados.vencimento
+  texto = texto.replace(/{vencimento}/g,   dados.vencimento
     ? new Date(dados.vencimento + 'T12:00:00').toLocaleDateString('pt-BR')
     : '');
 
