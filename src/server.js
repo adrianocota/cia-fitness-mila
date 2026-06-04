@@ -7,7 +7,7 @@ import { processarWebhook } from './handlers/webhookHandler.js';
 import { rodarFollowups } from './handlers/followupHandler.js';
 import { verificarConexao } from './services/zapi.js';
 import { limparCache } from './lib/promptBuilder.js';
-import { rodarTransmissao } from './crm/crmHandler.js';
+import { rodarTransmissao, rodarCRM } from './crm/crmHandler.js';
 import { processarEvoCRM } from './crm/evoCrmWebhook.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -45,6 +45,13 @@ app.post('/trigger-followup', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Rota para disparar CRM manualmente (testes/emergência)
+app.post('/trigger-crm', async (req, res) => {
+  if (req.headers['x-secret-token'] !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
+  try { await rodarCRM(); res.json({ status: 'ok' }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/admin/cache/clear', (req, res) => {
   if (req.headers['x-secret-token'] !== config.zapi.token) return res.status(403).json({ error: 'forbidden' });
   try { limparCache(); res.json({ status: 'ok', timestamp: new Date().toISOString() }); }
@@ -57,7 +64,6 @@ app.get('/dashboard', (req, res) => {
 
 // ================================================
 // ROTA CRM — WEBHOOK DO EVO CRM 2.0
-// O EVO chama esta rota quando um gatilho dispara
 // ================================================
 
 app.post('/evo-crm', async (req, res) => {
@@ -93,7 +99,15 @@ if (config.server.env === 'production') {
     catch (e) { console.error('❌ Follow-up:', e.message); }
   }, { timezone: 'America/Sao_Paulo' });
 
+  // CRM automático: todos os dias às 08h
+  cron.schedule('0 8 * * *', async () => {
+    console.log('⏰ Iniciando CRM automático das 08h...');
+    try { await rodarCRM(); }
+    catch (e) { console.error('❌ CRM automático:', e.message); }
+  }, { timezone: 'America/Sao_Paulo' });
+
   console.log('✅ Cron follow-up agendado (a cada hora)');
+  console.log('✅ Cron CRM agendado (08h diário)');
   console.log('✅ CRM via webhook EVO CRM 2.0 — aguardando eventos em /evo-crm');
 } else {
   console.log('🧪 Development: crons desabilitados');
