@@ -11,6 +11,53 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const LINK_CHECKOUT_GENERICO = 'https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/';
 
+// ─── CACHE DE MEMBROS ─────────────────────────────────────────────────────────
+// Evita múltiplas requisições individuais nos gatilhos de cobrança recusada.
+// Carregado uma vez por execução do CRM e reutilizado em todos os gatilhos.
+
+let _cacheMembros = null; // Map<idMember, { telefone, nome, linkPagamento }>
+
+async function obterCacheMembros() {
+  if (_cacheMembros) {
+    console.log(`📦 Cache de membros reutilizado (${_cacheMembros.size} entradas)`);
+    return _cacheMembros;
+  }
+
+  console.log('🔄 Carregando cache de membros EVO...');
+  const mapa = new Map();
+  let skip = 0;
+
+  // Busca ativos e inativos para cobrir inadimplentes de ambos os status
+  for (const status of [1, 2]) {
+    skip = 0;
+    while (true) {
+      const lote = await evoGet(`/members?take=50&skip=${skip}&status=${status}`, EVO_BASE_V2);
+      if (!lote || lote.length === 0) break;
+      for (const m of lote) {
+        const telefone = tel(m);
+        if (telefone) {
+          mapa.set(m.idMember, {
+            telefone,
+            nome: nome(m),
+            linkPagamento: linkPagamento(m),
+          });
+        }
+      }
+      if (lote.length < 50) break;
+      skip += 50;
+      await sleep(1500);
+    }
+  }
+
+  _cacheMembros = mapa;
+  console.log(`✅ Cache de membros carregado: ${mapa.size} entradas`);
+  return mapa;
+}
+
+export function limparCacheMembros() {
+  _cacheMembros = null;
+}
+
 // ─────────────────────────────────────────────
 // HELPERS DE DATA
 // ─────────────────────────────────────────────
@@ -56,7 +103,6 @@ async function evoGet(path, base = EVO_BASE) {
 
 // ─────────────────────────────────────────────
 // BUSCA PAGINADA — MEMBROS (v2)
-// status=1 → ativos | status=2 → inativos
 // ─────────────────────────────────────────────
 
 async function buscarMembros(filtros = '', status = 1) {
@@ -115,8 +161,6 @@ function instrutor(m) {
     : null;
 }
 
-// Retorna o contractSigningUrl do membership ativo mais recente
-// Fallback: link genérico de checkout
 function linkPagamento(m) {
   if (!m.memberships || m.memberships.length === 0) return LINK_CHECKOUT_GENERICO;
   const ativo = m.memberships
@@ -135,49 +179,42 @@ function mapear(m, gatilho, extra = {}) {
 // GATILHOS — ALUNOS ATIVOS
 // ─────────────────────────────────────────────
 
-// 1. 9 dias sem presença
 export async function gatilho_9diasSemPresenca() {
   const data = dataISO(9);
   const lista = await buscarMembros(`&lastAccessStart=${data}&lastAccessEnd=${data}`, 1);
   return lista.map(m => mapear(m, '9_dias_sem_presenca')).filter(m => m.telefone);
 }
 
-// 2. 18 dias sem presença
 export async function gatilho_18diasSemPresenca() {
   const data = dataISO(18);
   const lista = await buscarMembros(`&lastAccessStart=${data}&lastAccessEnd=${data}`, 1);
   return lista.map(m => mapear(m, '18_dias_sem_presenca')).filter(m => m.telefone);
 }
 
-// 3. Aniversariante hoje
 export async function gatilho_aniversario() {
   const md = dataMD(0);
   const lista = await buscarMembros(`&birthdayStart=${md}&birthdayEnd=${md}`, 1);
   return lista.map(m => mapear(m, 'aniversario')).filter(m => m.telefone);
 }
 
-// 4. 1 dia após matrícula
 export async function gatilho_1diaAposMatricula() {
   const data = dataISO(1);
   const lista = await buscarMembros(`&registerDateStart=${data}&registerDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '1_dia_apos_matricula')).filter(m => m.telefone);
 }
 
-// 5. 30 dias após matrícula
 export async function gatilho_30diasAposMatricula() {
   const data = dataISO(30);
   const lista = await buscarMembros(`&registerDateStart=${data}&registerDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '30_dias_apos_matricula')).filter(m => m.telefone);
 }
 
-// 6. 16 dias antes do vencimento — só lembrete, sem link
 export async function gatilho_16diasAntesVencimento() {
   const data = dataFutura(16);
   const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '16_dias_antes_vencimento', { vencimento: data })).filter(m => m.telefone);
 }
 
-// 7. 5 dias após vencimento — link personalizado
 export async function gatilho_5diasAposVencimento() {
   const data = dataISO(5);
   const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 1);
@@ -187,7 +224,6 @@ export async function gatilho_5diasAposVencimento() {
   })).filter(m => m.telefone);
 }
 
-// 8. 30 dias após vencimento — ex-aluno (status=2 = inativo)
 export async function gatilho_30diasAposVencimento() {
   const data = dataISO(30);
   const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 2);
@@ -195,19 +231,11 @@ export async function gatilho_30diasAposVencimento() {
 }
 
 // ─────────────────────────────────────────────
-// GATILHOS — COBRANÇA RECUSADA
+// GATILHOS — COBRANÇA RECUSADA (com cache)
 // ─────────────────────────────────────────────
 
-async function buscarMembroPorId(idMember) {
-  try {
-    const data = await evoGet(`/members/${idMember}`, EVO_BASE_V2);
-    return data;
-  } catch {
-    return null;
-  }
-}
-
 async function cobrancasPorData(data) {
+  // Busca lista de cobranças recusadas
   const lista = [];
   let skip = 0;
   while (true) {
@@ -221,37 +249,37 @@ async function cobrancasPorData(data) {
     await sleep(2000);
   }
 
+  if (lista.length === 0) return [];
+
+  // Usa cache de membros — sem requisições individuais
+  const cacheMembros = await obterCacheMembros();
+
   const resultado = [];
   for (const r of lista) {
     if (!r.idMemberPayer) continue;
-    const membro = await buscarMembroPorId(r.idMemberPayer);
-    const telefone = membro ? tel(membro) : null;
-    if (!telefone) continue;
+    const membro = cacheMembros.get(r.idMemberPayer);
+    if (!membro?.telefone) continue;
     resultado.push({
-      telefone,
-      nome:         r.payerName ? r.payerName.split(' ')[0] : (membro ? nome(membro) : 'você'),
-      valor:        r.ammount,
-      linkPagamento: membro ? linkPagamento(membro) : LINK_CHECKOUT_GENERICO,
-      gatilho:      null,
+      telefone: membro.telefone,
+      nome: r.payerName ? r.payerName.split(' ')[0] : membro.nome,
+      valor: r.ammount,
+      linkPagamento: membro.linkPagamento,
+      gatilho: null,
     });
-    await sleep(2000);
   }
   return resultado;
 }
 
-// 9. Cobrança recusada — dia 0
 export async function gatilho_cobrancaRecusada() {
   const lista = await cobrancasPorData(dataISO(0));
   return lista.map(r => ({ ...r, gatilho: 'cobranca_recusada' }));
 }
 
-// 10. Cobrança recusada — 3 dias
 export async function gatilho_cobrancaRecusada3d() {
   const lista = await cobrancasPorData(dataISO(3));
   return lista.map(r => ({ ...r, gatilho: 'cobranca_recusada_3d' }));
 }
 
-// 11. Cobrança recusada — 7 dias
 export async function gatilho_cobrancaRecusada7d() {
   const lista = await cobrancasPorData(dataISO(7));
   return lista.map(r => ({ ...r, gatilho: 'cobranca_recusada_7d' }));
@@ -261,30 +289,28 @@ export async function gatilho_cobrancaRecusada7d() {
 // GATILHOS — OPORTUNIDADES / PROSPECTS
 // ─────────────────────────────────────────────
 
-// 12. Pós-visita — visitou ontem
 export async function gatilho_posVisita() {
   const data = dataISO(1);
   const lista = await buscarProspects(`&registerDateStart=${data}&registerDateEnd=${data}&prospectStatus=Visit`);
   return lista.map(p => ({
     telefone: tel({ contacts: p.contacts }),
-    nome:     (p.name || p.firstName || '').split(' ')[0] || 'você',
-    gatilho:  'pos_visita',
+    nome: (p.name || p.firstName || '').split(' ')[0] || 'você',
+    gatilho: 'pos_visita',
   })).filter(p => p.telefone);
 }
 
-// 13. 7 dias após cadastro de oportunidade
 export async function gatilho_7diasAposOportunidade() {
   const data = dataISO(7);
   const lista = await buscarProspects(`&registerDateStart=${data}&registerDateEnd=${data}`);
   return lista.map(p => ({
     telefone: tel({ contacts: p.contacts }),
-    nome:     (p.name || p.firstName || '').split(' ')[0] || 'você',
-    gatilho:  '7_dias_apos_oportunidade',
+    nome: (p.name || p.firstName || '').split(' ')[0] || 'você',
+    gatilho: '7_dias_apos_oportunidade',
   })).filter(p => p.telefone);
 }
 
 // ─────────────────────────────────────────────
-// LEGADO — não usado
+// LEGADO
 // ─────────────────────────────────────────────
 export async function buscarDadosCRM() {
   return {};
