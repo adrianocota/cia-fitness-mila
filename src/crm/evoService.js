@@ -9,6 +9,8 @@ const AUTH = 'Basic ' + Buffer.from(`${EVO_DNS}:${EVO_TOKEN}`).toString('base64'
 const headers = { 'Authorization': AUTH, 'accept': 'application/json' };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const LINK_CHECKOUT_GENERICO = 'https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/';
+
 // ─────────────────────────────────────────────
 // HELPERS DE DATA
 // ─────────────────────────────────────────────
@@ -113,6 +115,18 @@ function instrutor(m) {
     : null;
 }
 
+// Retorna o contractSigningUrl do membership ativo mais recente
+// Fallback: link genérico de checkout
+function linkPagamento(m) {
+  if (!m.memberships || m.memberships.length === 0) return LINK_CHECKOUT_GENERICO;
+  const ativo = m.memberships
+    .filter(ms => ms.membershipStatus === 'active' && ms.contractSigningUrl)
+    .sort((a, b) => new Date(b.startDate) - new Date(a.startDate))[0];
+  if (ativo) return ativo.contractSigningUrl;
+  const comUrl = m.memberships.find(ms => ms.contractSigningUrl);
+  return comUrl ? comUrl.contractSigningUrl : LINK_CHECKOUT_GENERICO;
+}
+
 function mapear(m, gatilho, extra = {}) {
   return { telefone: tel(m), nome: nome(m), instrutor: instrutor(m), gatilho, ...extra };
 }
@@ -156,18 +170,21 @@ export async function gatilho_30diasAposMatricula() {
   return lista.map(m => mapear(m, '30_dias_apos_matricula')).filter(m => m.telefone);
 }
 
-// 6. 16 dias antes do vencimento
+// 6. 16 dias antes do vencimento — só lembrete, sem link
 export async function gatilho_16diasAntesVencimento() {
   const data = dataFutura(16);
   const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 1);
   return lista.map(m => mapear(m, '16_dias_antes_vencimento', { vencimento: data })).filter(m => m.telefone);
 }
 
-// 7. 5 dias após vencimento
+// 7. 5 dias após vencimento — link personalizado
 export async function gatilho_5diasAposVencimento() {
   const data = dataISO(5);
   const lista = await buscarMembros(`&endDateStart=${data}&endDateEnd=${data}`, 1);
-  return lista.map(m => mapear(m, '5_dias_apos_vencimento', { vencimento: data })).filter(m => m.telefone);
+  return lista.map(m => mapear(m, '5_dias_apos_vencimento', {
+    vencimento: data,
+    linkPagamento: linkPagamento(m),
+  })).filter(m => m.telefone);
 }
 
 // 8. 30 dias após vencimento — ex-aluno (status=2 = inativo)
@@ -212,9 +229,10 @@ async function cobrancasPorData(data) {
     if (!telefone) continue;
     resultado.push({
       telefone,
-      nome:   r.payerName ? r.payerName.split(' ')[0] : (membro ? nome(membro) : 'você'),
-      valor:  r.ammount,
-      gatilho: null,
+      nome:         r.payerName ? r.payerName.split(' ')[0] : (membro ? nome(membro) : 'você'),
+      valor:        r.ammount,
+      linkPagamento: membro ? linkPagamento(membro) : LINK_CHECKOUT_GENERICO,
+      gatilho:      null,
     });
     await sleep(2000);
   }
