@@ -4,6 +4,7 @@ import {
   registrarFollowup,
   salvarMensagem,
   ultimaMensagemFoiHumana,
+  atualizarStatusLead,
 } from '../services/supabase.js';
 import { enviarTexto } from '../services/zapi.js';
 
@@ -22,10 +23,8 @@ function dentroDaJanela(dia) {
   const agora = new Date();
   const hora = agora.getHours();
   const diaSemana = agora.getDay();
-
   if (diaSemana === 0) return false;
   if (diaSemana === 6 && hora >= 12) return false;
-
   const janela = config.followup.horarios[`dia${dia}`];
   if (!janela) return false;
   return hora >= janela.inicio && hora < janela.fim;
@@ -56,19 +55,21 @@ async function processarFollowupDia(dia) {
       }
 
       const mensagem = MENSAGENS_FOLLOWUP[dia](lead.nome);
-
       await enviarTexto(lead.telefone, mensagem);
-
       await salvarMensagem({
         leadId: lead.id,
         direcao: 'saida',
         origem: 'mila',
         conteudo: mensagem,
       });
-
       await registrarFollowup(lead.id, dia);
-
       console.log(`✅ Follow-up dia ${dia} enviado pro lead ${lead.id}`);
+
+      // Após o último follow-up (dia 14), marca como perdido
+      if (dia === 14) {
+        await atualizarStatusLead(lead.id, 'perdido', 'Sem resposta após follow-up dia 14');
+        console.log(`🔴 Lead ${lead.id} marcado como perdido após follow-up dia 14`);
+      }
 
       await new Promise((resolve) => setTimeout(resolve, 2000));
     } catch (error) {
@@ -80,10 +81,8 @@ async function processarFollowupDia(dia) {
 export async function rodarFollowups() {
   console.log('🚀 Iniciando ciclo de follow-ups');
   console.log(`Hora atual: ${new Date().toLocaleString('pt-BR')}`);
-
   for (const dia of [1, 3, 7, 14]) {
     await processarFollowupDia(dia);
   }
-
   console.log('✅ Ciclo de follow-ups finalizado');
 }
