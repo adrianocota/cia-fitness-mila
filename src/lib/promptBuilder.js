@@ -4,7 +4,6 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Carrega arquivos de conhecimento uma única vez
 let _baseConhecimento = null;
 let _ofertaVigente = null;
 
@@ -32,12 +31,6 @@ function carregarOferta() {
   return _ofertaVigente;
 }
 
-// ─── SISTEMA PROMPT PRINCIPAL ─────────────────────────────────────────────────
-
-/**
- * @param {string|null} perfilContexto - Dados do perfil do lead formatados
- * @param {'prospect'|'aluno'} modo - Define o comportamento da Mila
- */
 export function montarSystemPrompt(perfilContexto = null, modo = 'prospect') {
   const base = carregarBase();
   const oferta = carregarOferta();
@@ -68,7 +61,6 @@ ${base}
 ${oferta ? `OFERTA VIGENTE:\n${oferta}` : ''}`.trim();
   }
 
-  // ── MODO PROSPECT (padrão) ────────────────────────────────────────────────
   return `Você é Mila, assistente virtual da Cia do Fitness em João Monlevade (MG).
 
 Seu objetivo é qualificar leads e guiá-los até a matrícula ou visita à academia, de forma natural, sem pressão e sem parecer robô.
@@ -96,9 +88,18 @@ RESTRIÇÕES ABSOLUTAS:
 - Nunca use em dashes (—)
 - Máximo 3-4 linhas por mensagem, salvo quando for necessário detalhar algo importante
 - Nunca use linguagem de chatbot ("Claro!", "Certamente!", "Com prazer!")
+- Nunca responda sobre assuntos que o lead NÃO perguntou — responda apenas o que foi perguntado
+- Nunca ofereça enviar materiais (tabela, quadro de aulas, fluxograma) por iniciativa própria — só envie se o lead pedir explicitamente
+
+REGRA CRÍTICA SOBRE PERGUNTAS:
+- NUNCA termine toda resposta com uma pergunta automática
+- Perguntas só quando a conversa travar e o lead parar de interagir espontaneamente
+- Se o lead está fazendo perguntas ativamente, responda e encerre — ele vai continuar sozinho
+- Uma pergunta a cada 3 ou 4 trocas no máximo
+- Nunca faça pergunta logo após outra pergunta que ainda não foi respondida
 
 SOBRE PERSONAL TRAINER:
-A academia não oferece personal trainer incluso nos planos. Se o lead perguntar, diga que há profissionais que atendem de forma independente na academia mediante contrato particular entre eles.
+A academia não oferece personal trainer incluso nos planos. Se o lead perguntar, diga que há profissionais que atendem de forma independente na academia mediante contrato particular entre eles. Só mencione isso se o lead perguntar diretamente.
 
 ${perfilContexto ? `PERFIL DO LEAD (use para personalizar — não mencione que tem esse dado):
 ${perfilContexto}
@@ -109,25 +110,16 @@ ${base}
 ${oferta ? `OFERTA VIGENTE:\n${oferta}` : ''}`.trim();
 }
 
-// ─── LIMPAR CACHE ─────────────────────────────────────────────────────────────
-
 export function limparCache() {
   _baseConhecimento = null;
   _ofertaVigente = null;
   console.log('🧹 Cache do promptBuilder limpo');
 }
 
-// ─── FORMATADOR DE HISTÓRICO ──────────────────────────────────────────────────
-
-/**
- * Converte histórico do Supabase para o formato {role, content} da OpenAI.
- * Filtra marcadores internos (ex: [tabela planos enviada]) para não poluir o contexto.
- */
 export function formatarHistorico(historicoBruto = []) {
   return historicoBruto
     .filter(m => {
       if (!m.conteudo) return false;
-      // Remove marcadores internos de mídia
       if (/^\[.+\]$/.test(m.conteudo.trim())) return false;
       return true;
     })
