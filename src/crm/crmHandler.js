@@ -16,31 +16,72 @@ import {
 import { montarMensagem } from './mensagens.js';
 import { enviarTexto, enviarImagem } from '../services/zapi.js';
 import { gravarLog } from '../services/supabase.js';
+import supabase from '../services/supabase.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const INTERVALO_WHATSAPP = 4000;
 
-const disparadosHoje = new Set();
+// ─── DEDUPLICAÇÃO PERSISTENTE ─────────────────────────────────────────────────
 
-function chave(telefone, gatilho) {
-  return `${new Date().toISOString().split('T')[0]}:${telefone}:${gatilho}`;
+function dataHoje() {
+  return new Date().toISOString().split('T')[0];
 }
 
+async function jaDisparado(telefone, gatilho) {
+  try {
+    const { data, error } = await supabase
+      .from('crm_disparos')
+      .select('id')
+      .eq('data', dataHoje())
+      .eq('telefone', telefone)
+      .eq('gatilho', gatilho)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('⚠️ Erro ao verificar deduplicação CRM:', error.message);
+      return false; // em caso de erro, permite o envio
+    }
+    return !!data;
+  } catch (e) {
+    console.warn('⚠️ Erro inesperado na deduplicação CRM:', e.message);
+    return false;
+  }
+}
+
+async function registrarDisparo(telefone, gatilho) {
+  try {
+    await supabase
+      .from('crm_disparos')
+      .insert({ data: dataHoje(), telefone, gatilho });
+  } catch (e) {
+    console.warn('⚠️ Erro ao registrar disparo CRM:', e.message);
+  }
+}
+
+// ─── DISPARADOR ───────────────────────────────────────────────────────────────
+
 async function disparar(lista, gatilho) {
-  let enviados = 0, erros = 0;
+  let enviados = 0, erros = 0, pulados = 0;
   for (const lead of lista) {
     if (!lead.telefone) continue;
-    const k = chave(lead.telefone, gatilho);
-    if (disparadosHoje.has(k)) continue;
+
+    const duplicado = await jaDisparado(lead.telefone, gatilho);
+    if (duplicado) {
+      console.log(`⏭️ [${gatilho}] já enviado hoje para ${lead.telefone}`);
+      pulados++;
+      continue;
+    }
+
     const msg = montarMensagem(gatilho, lead);
     if (!msg) continue;
+
     try {
       if (msg.imagem) {
         await enviarImagem(lead.telefone, msg.imagem, '');
         await sleep(1500);
       }
       await enviarTexto(lead.telefone, msg.texto);
-      disparadosHoje.add(k);
+      await registrarDisparo(lead.telefone, gatilho);
       enviados++;
       console.log(`✅ [${gatilho}] ${lead.nome} (${lead.telefone})`);
       await sleep(INTERVALO_WHATSAPP);
@@ -55,8 +96,10 @@ async function disparar(lista, gatilho) {
       });
     }
   }
-  return { enviados, erros };
+  return { enviados, erros, pulados };
 }
+
+// ─── ENTRY POINT ──────────────────────────────────────────────────────────────
 
 export async function rodarCRM() {
   console.log('📋 CRM iniciado —', new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
@@ -87,7 +130,7 @@ export async function rodarCRM() {
         const stats = await disparar(lista, g.nome);
         resultado[g.nome] = { encontrados: lista.length, ...stats };
       } else {
-        resultado[g.nome] = { encontrados: 0, enviados: 0, erros: 0 };
+        resultado[g.nome] = { encontrados: 0, enviados: 0, erros: 0, pulados: 0 };
       }
       await sleep(1000);
     } catch (e) {
