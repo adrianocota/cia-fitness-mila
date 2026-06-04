@@ -253,7 +253,6 @@ ${regrasAluno}`
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
-  // Ignora mensagens enviadas pelo próprio número (disparos EVO, etc.)
   if (webhookBody.fromMe === true) {
     console.log('🔕 fromMe=true — disparo próprio ignorado');
     return;
@@ -276,7 +275,7 @@ export async function processarWebhook(webhookBody) {
     if (phone) {
       try {
         const lead = await buscarOuCriarLead({ telefone: phone });
-        if (!lead) return; // colaborador EVO
+        if (!lead) return;
         const conteudo = webhookBody.text?.message || '[mensagem do humano]';
         await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'humano', conteudo });
       } catch (error) {
@@ -335,19 +334,18 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // Colaborador EVO identificado — ignora silenciosamente
   if (!lead) return;
 
   const statusNormalizado = lead.status === 'ativo' ? 'mila' : (lead.status === 'transferido' ? 'humano' : lead.status);
 
-  // 2. Lead CRM — silêncio total, só salva a mensagem
+  // 2. Lead CRM — silêncio total
   if (lead.status === 'crm') {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
     console.log(`🔕 Lead ${lead.id} em modo CRM — mensagem salva, sem resposta`);
     return;
   }
 
-  // 3. Protocolo de crise — regex puro, não precisa de contexto
+  // 3. Protocolo de crise
   if (REGEX.crise.test(conteudo)) {
     try {
       await enviarTexto(phone, `Fico feliz que você compartilhou isso comigo. Pensamentos assim são pesados de carregar, e faz sentido querer mudar algo na vida.\n\nSe precisar conversar com alguém especializado, o CVV atende 24h pelo 188 ou pelo chat em cvv.org.br, de graça e com sigilo total.\n\nAqui na Cia, o treino pode ser um caminho pra se cuidar também. Mas o mais importante agora é você estar bem.`);
@@ -400,7 +398,33 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 6. Lead transferido — janela de silêncio ou humano ainda ativo
+  // 6. Lead perdido — reativar como encerrado (mesmo tratamento)
+  if (statusNormalizado === 'perdido') {
+    try {
+      const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
+      lead = leadReativado;
+      await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
+      const historicoBruto = await buscarHistorico(lead.id, 20);
+      const historicoFormatado = formatarHistorico(historicoBruto.slice(0, -1));
+      const mensagemFinal = `[CONTEXTO INTERNO: Este lead ficou sem resposta e voltou após ${diasPassados} dias. Cumprimente com leveza e retome o contato de forma natural.]\n\nMensagem: ${conteudo}`;
+      const resposta = await gerarResposta({ systemPrompt: montarSystemPrompt(), historico: historicoFormatado, mensagemNova: mensagemFinal });
+      await enviarTexto(phone, resposta);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
+      console.log(`🔄 Lead ${lead.id} perdido reativado após ${diasPassados} dias`);
+    } catch (error) {
+      console.error('❌ Erro ao reativar lead perdido:', error.message);
+    }
+    return;
+  }
+
+  // 7. Lead agendado — só salva, não responde (humano já está cuidando)
+  if (statusNormalizado === 'agendado') {
+    await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
+    console.log(`📅 Lead ${lead.id} com visita agendada — mensagem salva, sem resposta automática`);
+    return;
+  }
+
+  // 8. Lead transferido — janela de silêncio ou humano ainda ativo
   if (dentroJanelaSilencio(lead)) {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
     return;
@@ -415,7 +439,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     console.log(`🔄 Lead ${lead.id} retomando com Mila.`);
   }
 
-  // 7. Lead MATRICULADO — modo aluno
+  // 9. Lead MATRICULADO — modo aluno
   if (statusNormalizado === 'matriculado') {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
@@ -446,17 +470,16 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
       await new Promise(resolve => setTimeout(resolve, delay));
       await enviarTexto(phone, resposta);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
-      console.log(`✅ Mila respondeu pro aluno ${lead.id} (modo aluno)`);
     } catch (error) {
       console.error('❌ Erro ao responder aluno:', error.message);
     }
     return;
   }
 
-  // 8. Salvar mensagem (todos os status restantes: mila, agendado, perdido)
+  // 10. Salvar mensagem (status: mila/ativo)
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
-  // 9. Buscar histórico e perfil
+  // 11. Buscar histórico e perfil
   const historicoBruto = await buscarHistorico(lead.id, 20);
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
@@ -464,11 +487,11 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   let perfilLead = await buscarPerfil(lead.id);
   if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
 
-  // 10. GUARD DE REENVIO — roda ANTES do classificador
+  // 12. GUARD DE REENVIO — roda ANTES do classificador
   const reenvioFeito = await tentarReenvio(phone, lead, conteudo, historicoBruto);
   if (reenvioFeito) return;
 
-  // 11. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
+  // 13. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
   const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, statusNormalizado);
 
   // ─── ROTEAMENTO POR INTENÇÃO ──────────────────────────────────────────────
