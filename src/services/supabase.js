@@ -125,6 +125,10 @@ let _cacheColaboradores = null;
 let _cacheTimestamp = 0;
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutos
 
+// Cache dos liberados (pode_testar_mila = true)
+let _cacheLiberados = null;
+let _cacheLiberadosTimestamp = 0;
+
 async function buscarTelefonesColaboradores() {
   if (_cacheColaboradores && Date.now() - _cacheTimestamp < CACHE_TTL_MS) {
     return _cacheColaboradores;
@@ -147,10 +151,43 @@ async function buscarTelefonesColaboradores() {
   }
 }
 
+async function buscarTelefonesLiberados() {
+  if (_cacheLiberados && Date.now() - _cacheLiberadosTimestamp < CACHE_TTL_MS) {
+    return _cacheLiberados;
+  }
+  try {
+    const { data, error } = await supabase
+      .from('recepcionistas')
+      .select('telefone')
+      .eq('pode_testar_mila', true);
+
+    if (error) throw new Error(error.message);
+
+    _cacheLiberados = (data || [])
+      .map(r => (r.telefone || '').replace(/\D/g, ''))
+      .filter(t => t.length >= 8);
+    _cacheLiberadosTimestamp = Date.now();
+    console.log(`✅ Cache liberados Mila atualizado: ${_cacheLiberados.length} registros`);
+    return _cacheLiberados;
+  } catch (err) {
+    console.warn('⚠️ Falha ao buscar liberados Mila (usando cache):', err.message);
+    return _cacheLiberados || [];
+  }
+}
+
 export async function eColaboradorEvo(telefone) {
   const numLimpo = telefone.replace(/\D/g, '');
+
+  // Verifica primeiro se está na lista de liberados — se sim, não bloqueia
+  const liberados = await buscarTelefonesLiberados();
+  const estaLiberado = liberados.some(t => numLimpo.endsWith(t) || t.endsWith(numLimpo));
+  if (estaLiberado) {
+    console.log(`🟢 Telefone ${telefone} é colaborador liberado para testar Mila`);
+    return false;
+  }
+
+  // Verifica se é colaborador EVO — se sim, bloqueia
   const colaboradores = await buscarTelefonesColaboradores();
-  // Compara por sufixo para cobrir variações de DDI (55 + DDD + número)
   return colaboradores.some(t => numLimpo.endsWith(t) || t.endsWith(numLimpo));
 }
 
