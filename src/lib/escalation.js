@@ -20,78 +20,56 @@ function horaBrasilia() {
 
 async function buscarRecepcionistasDeAgora() {
   const { hora, diaSemana } = horaBrasilia();
-
   const { data, error } = await supabase
-    .from('recepcionistas')
-    .select('*')
-    .eq('ativa', true)
-    .lte('hora_inicio', hora)
-    .gt('hora_fim', hora)
-    .contains('dia_semana', [diaSemana]);
-
-  if (error) {
-    console.error('Erro ao buscar recepcionistas:', error.message);
-    return [];
-  }
-
+    .from('recepcionistas').select('*').eq('ativa', true)
+    .lte('hora_inicio', hora).gt('hora_fim', hora).contains('dia_semana', [diaSemana]);
+  if (error) { console.error('Erro ao buscar recepcionistas:', error.message); return []; }
   return data || [];
 }
 
 async function buscarProximaRecepcionista() {
   const { hora, diaSemana } = horaBrasilia();
-
   const { data: hoje, error: erroHoje } = await supabase
-    .from('recepcionistas')
-    .select('*')
-    .eq('ativa', true)
-    .gt('hora_inicio', hora)
-    .contains('dia_semana', [diaSemana])
-    .order('hora_inicio', { ascending: true })
-    .limit(1);
-
+    .from('recepcionistas').select('*').eq('ativa', true)
+    .gt('hora_inicio', hora).contains('dia_semana', [diaSemana])
+    .order('hora_inicio', { ascending: true }).limit(1);
   if (!erroHoje && hoje && hoje.length > 0) return hoje[0];
-
   const amanha = (diaSemana + 1) % 7;
-
   const { data: prox, error: erroProx } = await supabase
-    .from('recepcionistas')
-    .select('*')
-    .eq('ativa', true)
-    .contains('dia_semana', [amanha])
-    .order('hora_inicio', { ascending: true })
-    .limit(1);
-
+    .from('recepcionistas').select('*').eq('ativa', true)
+    .contains('dia_semana', [amanha]).order('hora_inicio', { ascending: true }).limit(1);
   if (!erroProx && prox && prox.length > 0) return prox[0];
-
   return null;
 }
 
 async function selecionarRecepcionista(recepcionistas) {
   if (!recepcionistas || recepcionistas.length === 0) return null;
   if (recepcionistas.length === 1) return recepcionistas[0];
-
   const ordenadas = [...recepcionistas].sort((a, b) => {
     if (!a.ultima_escalacao_em) return -1;
     if (!b.ultima_escalacao_em) return 1;
     return new Date(a.ultima_escalacao_em) - new Date(b.ultima_escalacao_em);
   });
-
   return ordenadas[0];
 }
 
 async function registrarEscalacao(recepcionistaId) {
-  const { error } = await supabase
-    .from('recepcionistas')
-    .update({ ultima_escalacao_em: new Date().toISOString() })
-    .eq('id', recepcionistaId);
-
-  if (error) {
-    console.error('Erro ao registrar escalação:', error.message);
-  }
+  const { error } = await supabase.from('recepcionistas')
+    .update({ ultima_escalacao_em: new Date().toISOString() }).eq('id', recepcionistaId);
+  if (error) console.error('Erro ao registrar escalação:', error.message);
 }
 
-const MENSAGEM_DESPEDIDA = (nome) =>
-  `Perfeito${nome ? ', ' + primeiroNome(nome) : ''}! Vou te conectar agora com nossa equipe presencial. Eles vão te ajudar com tudo. Em alguns minutos uma de nossas atendentes te chama por aqui mesmo, tá bom?`;
+// ─── MENSAGEM DE DESPEDIDA ────────────────────────────────────────────────────
+// respostaAntes: texto opcional para responder a última pergunta do lead
+// antes de transferir. Ex: "Sim, pode sim! A matrícula é feita aqui na academia."
+
+function montarMensagemDespedida(nome, respostaAntes = null) {
+  const base = `Vou te conectar agora com nossa equipe presencial. Em alguns minutos uma de nossas atendentes te chama por aqui mesmo, tá bom?`;
+  if (respostaAntes) {
+    return `${respostaAntes} ${base}`;
+  }
+  return `Perfeito${nome ? ', ' + primeiroNome(nome) : ''}! ${base}`;
+}
 
 async function gerarResumoConversa(historico, motivo) {
   try {
@@ -99,8 +77,7 @@ async function gerarResumoConversa(historico, motivo) {
       .map((m) => {
         const quem = m.direcao === 'entrada' ? 'Lead' : 'Mila';
         return `${quem}: ${m.conteudo}`;
-      })
-      .join('\n');
+      }).join('\n');
 
     const prompt = `Você é um assistente que resume conversas de vendas de academia de forma extremamente concisa.
 
@@ -132,19 +109,22 @@ Responda APENAS com o resumo, sem nenhuma outra informação.`;
   } catch (error) {
     console.error('❌ Erro ao gerar resumo:', error.message);
     const mensagensLead = historico
-      .filter((m) => m.direcao === 'entrada')
-      .slice(-2)
-      .map((m) => m.conteudo)
-      .join(' | ');
+      .filter((m) => m.direcao === 'entrada').slice(-2)
+      .map((m) => m.conteudo).join(' | ');
     return mensagensLead || 'Resumo não disponível.';
   }
 }
 
-export async function transferirParaHumano({ lead, motivo }) {
+// ─── TRANSFERIR PARA HUMANO ───────────────────────────────────────────────────
+// respostaAntes: resposta à última pergunta do lead antes de transferir
+// Ex: quando lead pergunta "posso começar hoje?" antes de fechar
+
+export async function transferirParaHumano({ lead, motivo, resumo = null, respostaAntes = null }) {
   console.log(`🔥 Transferindo lead ${lead.id} (${lead.telefone}). Motivo: ${motivo}`);
 
   try {
-    await enviarTexto(lead.telefone, MENSAGEM_DESPEDIDA(lead.nome));
+    const msgDespedida = montarMensagemDespedida(lead.nome, respostaAntes);
+    await enviarTexto(lead.telefone, msgDespedida);
   } catch (error) {
     console.error('❌ Erro ao enviar despedida:', error.message);
   }
@@ -162,7 +142,7 @@ export async function transferirParaHumano({ lead, motivo }) {
 
   try {
     const historico = await buscarHistorico(lead.id, 20);
-    const resumo = await gerarResumoConversa(historico, motivo);
+    const resumoFinal = resumo || await gerarResumoConversa(historico, motivo);
 
     const recepcionistasAgora = await buscarRecepcionistasDeAgora();
     const selecionada = await selecionarRecepcionista(recepcionistasAgora);
@@ -184,7 +164,6 @@ export async function transferirParaHumano({ lead, motivo }) {
         const diaTexto = proxima.dia_semana.includes(diaSemana) ? 'hoje' : diaNome[amanha];
         cabecalhoRecepcionista = `⏰ Fora do horário de atendimento\n\n`;
         linhaPlantao = `Próxima: ${proxima.nome} às ${proxima.hora_inicio}h (${diaTexto})`;
-        console.log(`⏰ Fora do horário. Próxima: ${proxima.nome} às ${proxima.hora_inicio}h`);
       } else {
         cabecalhoRecepcionista = `⚠️ Nenhuma recepcionista encontrada\n\n`;
         linhaPlantao = 'Verificar escala manualmente';
@@ -196,7 +175,7 @@ export async function transferirParaHumano({ lead, motivo }) {
 Nome: ${primeiroNome(lead.nome) || 'não informado'}
 Telefone: ${lead.telefone}
 Campanha: ${lead.campanha_origem || 'não informada'}
-📋 Resumo: ${resumo}
+📋 Resumo: ${resumoFinal}
 Motivo: ${motivo}
 ${linhaPlantao}
 👉 Continue a conversa no contato dele.`;
@@ -210,7 +189,6 @@ ${linhaPlantao}
 
 export async function encerrarLead(lead, motivo = 'lead pediu pra encerrar') {
   console.log(`🛑 Encerrando lead ${lead.id}. Motivo: ${motivo}`);
-
   try {
     await enviarTexto(
       lead.telefone,
@@ -219,7 +197,6 @@ export async function encerrarLead(lead, motivo = 'lead pediu pra encerrar') {
   } catch (error) {
     console.error('❌ Erro ao enviar despedida:', error.message);
   }
-
   try {
     await atualizarStatusLead(lead.id, 'encerrado', motivo);
   } catch (error) {
