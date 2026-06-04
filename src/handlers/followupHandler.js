@@ -130,6 +130,12 @@ async function processarFollowupDia(dia) {
 
   for (const lead of leads) {
     try {
+      // Guard: lead já matriculado ou com visita agendada — não envia follow-up
+      if (['matriculado', 'agendado', 'encerrado'].includes(lead.status)) {
+        console.log(`⏭️ Lead ${lead.id} com status '${lead.status}'. Pulando follow-up.`);
+        continue;
+      }
+
       const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
       if (humanoAtivo) {
         console.log(`👤 Lead ${lead.id} está com humano. Pulando.`);
