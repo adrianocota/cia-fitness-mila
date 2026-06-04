@@ -213,7 +213,7 @@ CONTINUAR = qualquer outra coisa, inclusive saudações.
 ` : `
 REGRAS DE CLASSIFICAÇÃO:
 
-FECHAR = lead quer assinar/matricular/pagar agora. Ex: "quero assinar", "como pago", "vou fechar", "quero me matricular".
+FECHAR = lead confirma intenção de pagar/assinar AGORA de forma inequívoca. Ex: "quero assinar", "como pago", "vou fechar", "manda o link pra pagar", "quero fazer a matrícula agora". NÃO É FECHAR: perguntas sobre possibilidade como "posso me matricular hoje?", "dá pra começar hoje?", "como funciona a matrícula?" — essas são CONTINUAR.
 ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para de me chamar", "fechei em outro lugar".
 ESCALAR = lead pediu explicitamente falar com humano, quer agendar visita com hora marcada e confirmou, ou insistiu em desconto pela segunda vez.
 TABELA_COMPLETA = lead quer comparar TODOS os planos. Ex: "qual a vantagem de cada?", "me mostra todos os planos", "qual é melhor?".
@@ -498,7 +498,18 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
 
   if (intencao === 'FECHAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
-    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo });
+    // Gera uma resposta curta confirmando antes de transferir
+    let respostaAntes = null;
+    try {
+      respostaAntes = await gerarResposta({
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead quer fechar a matrícula. Responda a última mensagem dele em 1 frase curta e positiva, confirmando que é possível. Não transfira ainda, não explique o processo. Só confirme brevemente. Tom casual de WhatsApp.`,
+        historico: historicoFormatado,
+        mensagemNova: conteudo,
+      });
+    } catch (e) {
+      respostaAntes = null;
+    }
+    await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo, respostaAntes });
     return;
   }
 
