@@ -33,7 +33,7 @@ export const MENSAGENS = {
   },
 
   '16_dias_antes_vencimento': {
-    texto: `Oi {nome}! Seu plano vence em breve. Aproveite para renovar com antecedência e não ter nenhuma interrupção nos seus treinos. 👉 https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/`,
+    texto: `Oi {nome}! Passando pra lembrar que seu plano vence em breve. Aproveite esse tempo pra continuar focado nos seus treinos — quando chegar a hora, a gente avisa! 💪`,
     imagem: BASE_IMG + 'renove%20suas%20metas.png',
   },
 
