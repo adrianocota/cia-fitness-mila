@@ -99,6 +99,9 @@ function diasDeSilencio(lead) {
 }
 
 // ─── GUARD DE CONFIRMAÇÃO DE REENVIO ─────────────────────────────────────────
+// Só dispara quando:
+//   1. A mensagem do lead é uma confirmação curta (sim, manda, quero, etc.)
+//   2. A última mensagem da Mila foi especificamente uma oferta de reenvio
 
 async function tentarReenvio(phone, lead, conteudo, historicoBruto) {
   if (!REGEX.confirmacaoReenvio.test(conteudo.trim())) return false;
@@ -488,6 +491,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
 
   // 12. GUARD DE REENVIO — roda ANTES do classificador
+  // Só age quando: (a) mensagem é confirmação curta E (b) última msg da Mila foi oferta de reenvio
   const reenvioFeito = await tentarReenvio(phone, lead, conteudo, historicoBruto);
   if (reenvioFeito) return;
 
@@ -498,7 +502,6 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
 
   if (intencao === 'FECHAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
-    // Gera uma resposta curta confirmando antes de transferir
     let respostaAntes = null;
     try {
       respostaAntes = await gerarResposta({
@@ -527,45 +530,60 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (intencao === 'TABELA_COMPLETA') {
     try {
       if (!tabelaCompletaJaFoiEnviada(historicoBruto)) {
+        // Primeira vez — envia a tabela completa
         await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBruto);
+        return;
       } else {
-        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_TABELA, historicoBruto);
+        // Tabela já foi enviada — lead está fazendo pergunta específica sobre planos
+        // GPT responde com contexto (não oferece reenvio)
+        console.log(`📋 Tabela completa já enviada — respondendo pergunta específica via GPT (lead ${lead.id})`);
+        // Segue para o bloco CONTINUAR abaixo
       }
-    } catch (e) { console.error('❌ Tabela completa:', e.message); }
-    return;
+    } catch (e) { console.error('❌ Tabela completa:', e.message); return; }
   }
 
   if (intencao === 'TABELA_BASICA') {
     try {
       if (!tabelaJaFoiEnviada(historicoBruto)) {
+        // Primeira vez — envia a tabela básica
         await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
+        return;
       } else {
-        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_TABELA, historicoBruto);
+        // Tabela já foi enviada — lead está fazendo pergunta específica sobre planos
+        // GPT responde com contexto (não oferece reenvio)
+        console.log(`📋 Tabela básica já enviada — respondendo pergunta específica via GPT (lead ${lead.id})`);
+        // Segue para o bloco CONTINUAR abaixo
       }
-    } catch (e) { console.error('❌ Tabela básica:', e.message); }
-    return;
+    } catch (e) { console.error('❌ Tabela básica:', e.message); return; }
   }
 
   if (intencao === 'QUADRO_AULAS') {
     try {
       if (!quadroAulasJaFoiEnviado(historicoBruto)) {
+        // Primeira vez — envia o quadro
         await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
+        return;
       } else {
-        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_QUADRO, historicoBruto);
+        // Quadro já foi enviado — lead está fazendo pergunta específica sobre aulas
+        // GPT responde com contexto (não oferece reenvio)
+        console.log(`📋 Quadro de aulas já enviado — respondendo pergunta específica via GPT (lead ${lead.id})`);
+        // Segue para o bloco CONTINUAR abaixo
       }
-    } catch (e) { console.error('❌ Quadro aulas:', e.message); }
-    return;
+    } catch (e) { console.error('❌ Quadro aulas:', e.message); return; }
   }
 
   if (intencao === 'FLUXO') {
     try {
       if (!fluxogramaJaFoiEnviado(historicoBruto)) {
+        // Primeira vez — envia o fluxograma
         await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
+        return;
       } else {
-        await enviarTextoComVariacao(phone, lead, TEXTO_REENVIO_FLUXO, historicoBruto);
+        // Fluxograma já foi enviado — responde via GPT
+        console.log(`📋 Fluxograma já enviado — respondendo pergunta específica via GPT (lead ${lead.id})`);
+        // Segue para o bloco CONTINUAR abaixo
       }
-    } catch (e) { console.error('❌ Fluxograma:', e.message); }
-    return;
+    } catch (e) { console.error('❌ Fluxograma:', e.message); return; }
   }
 
   if (intencao === 'DAYUSE') {
@@ -665,6 +683,8 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
   }
 
   // CONTINUAR — GPT livre
+  // Também chega aqui quando TABELA_BASICA, TABELA_COMPLETA, QUADRO_AULAS ou FLUXO
+  // já foram enviados e o lead está fazendo uma pergunta específica sobre o conteúdo
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
