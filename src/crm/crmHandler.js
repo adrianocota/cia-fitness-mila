@@ -1,18 +1,3 @@
-import {
-  gatilho_9diasSemPresenca,
-  gatilho_18diasSemPresenca,
-  gatilho_aniversario,
-  gatilho_1diaAposMatricula,
-  gatilho_30diasAposMatricula,
-  gatilho_16diasAntesVencimento,
-  gatilho_5diasAposVencimento,
-  gatilho_30diasAposVencimento,
-  gatilho_cobrancaRecusada,
-  gatilho_cobrancaRecusada3d,
-  gatilho_cobrancaRecusada7d,
-  gatilho_posVisita,
-  gatilho_7diasAposOportunidade,
-} from './evoService.js';
 import { montarMensagem } from './mensagens.js';
 import { enviarTexto, enviarImagem } from '../services/zapi.js';
 import { gravarLog } from '../services/supabase.js';
@@ -39,7 +24,7 @@ async function jaDisparado(telefone, gatilho) {
 
     if (error) {
       console.warn('⚠️ Erro ao verificar deduplicação CRM:', error.message);
-      return false; // em caso de erro, permite o envio
+      return false;
     }
     return !!data;
   } catch (e) {
@@ -101,8 +86,16 @@ async function disparar(lista, gatilho) {
 
 // ─── ENTRY POINT ──────────────────────────────────────────────────────────────
 
+// ⚠️ GATILHOS DESABILITADOS — o CRM automático via cron está suspenso.
+// Os disparos devem ser feitos exclusivamente pelo EVO CRM via webhook /evo-crm.
+// Para reativar, descomentar os gatilhos desejados na lista abaixo.
+
 export async function rodarCRM() {
   console.log('📋 CRM iniciado —', new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
+  console.log('⚠️ CRM automático suspenso — disparos via EVO CRM webhook apenas.');
+  return {};
+
+  /* GATILHOS — descomentar quando EVO estiver configurado e homologado:
 
   const gatilhos = [
     { nome: '9_dias_sem_presenca',       fn: gatilho_9diasSemPresenca       },
@@ -141,6 +134,7 @@ export async function rodarCRM() {
 
   console.log('✅ CRM concluído', resultado);
   return resultado;
+  */
 }
 
 export async function rodarTransmissao({ lista, texto, imagemUrl = null }) {
