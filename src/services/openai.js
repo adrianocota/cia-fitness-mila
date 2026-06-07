@@ -35,16 +35,7 @@ export async function gerarResposta({ systemPrompt, historico, mensagemNova }) {
   }
 }
 
-// ─── CLASSIFICAR MENSAGEM DE FOLLOW-UP ───────────────────────────────────────
-
 // ─── CLASSIFICADOR GENÉRICO DE INTENÇÃO ──────────────────────────────────────
-// Substitui regex em qualquer situação onde o contexto importa mais que a palavra.
-// Cobre emojis (👍), gírias, frases ambíguas, confirmações indiretas, etc.
-// Custo mínimo: max_tokens=5, temperature=0.
-//
-// Uso: classificarIntencao(texto, pergunta, opcoes)
-// Ex: await classificarIntencao("👍", "O lead confirmou?", ["SIM", "NAO", "INCERTO"])
-// Ex: await classificarIntencao("vou pensar", "O lead quer fechar?", ["SIM", "NAO", "TALVEZ"])
 
 export async function classificarIntencao(texto, pergunta, opcoes = ['SIM', 'NAO', 'INCERTO'], contexto = '') {
   const opcoesStr = opcoes.join(' | ');
@@ -70,13 +61,13 @@ Sem explicação, sem pontuação, sem aspas.`;
 
     if (!opcoesUpper.includes(resultado)) {
       console.warn(`⚠️ classificarIntencao retornou "${resultado}" fora das opções. Usando "${opcoes[opcoes.length - 1]}".`);
-      return opcoes[opcoes.length - 1]; // última opção = fallback seguro
+      return opcoes[opcoes.length - 1];
     }
 
     return resultado;
   } catch (error) {
     console.error('❌ Erro ao classificar intenção:', error.message);
-    return opcoes[opcoes.length - 1]; // fallback seguro em caso de erro
+    return opcoes[opcoes.length - 1];
   }
 }
 
@@ -121,8 +112,6 @@ Responda APENAS com a palavra da categoria (sem aspas, sem explicação):`;
 }
 
 // ─── DETECTAR ESCALAÇÃO ───────────────────────────────────────────────────────
-// REGRA GERAL: só escala quando o gatilho for CLARO e EXPLÍCITO.
-// Em caso de dúvida, a resposta correta é NAO.
 
 export async function detectarEscalacao({ historico, mensagemNova }) {
   const prompt = `Você analisa conversas entre lead e atendente virtual de uma academia. Decida se essa conversa deve ser transferida pra atendente humano AGORA.
@@ -168,6 +157,7 @@ PERGUNTAS QUE A ATENDENTE SABE RESPONDER:
 - Trancamento de plano, como funciona, quantos dias
 - Cancelamento, carência, multa — primeira vez
 - Avaliação física, consulta nutricional, dayuse, personal trainer
+- Perguntas sobre processo de matrícula: "como funciona o primeiro dia?", "quando posso começar?", "posso iniciar antes da avaliação?", "posso começar e fazer avaliação depois?", "preciso de atestado?", "o que preciso pra me matricular?", "posso ir hoje me matricular?" — a atendente responde essas perguntas
 - Condições de saúde (hérnia, lesão, diabetes, hipertensão, gravidez, etc.)
 - Idade, vergonha, medo de começar
 - Luto, perda de familiar — a atendente acolhe
@@ -216,7 +206,6 @@ MOTIVO: [se SIM, qual gatilho específico ocorreu. Se NAO, deixe em branco]`;
 // ─── DETECTAR AMBIGUIDADE ─────────────────────────────────────────────────────
 
 export async function detectarAmbiguidade({ historico, mensagemNova }) {
-  // Heurística: mensagens muito curtas ou respostas simples não precisam de checagem
   const limpo = mensagemNova.trim().toLowerCase();
   if (limpo.length < 8) return null;
 
