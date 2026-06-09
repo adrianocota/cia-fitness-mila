@@ -19,6 +19,7 @@ import { gerarResposta, classificarIntencao } from '../services/openai.js';
 import { buscarPerfil, criarPerfilVazio, formatarPerfilParaPrompt, extrairEAtualizarPerfil, gerarResumoHandoff } from '../services/leadProfile.js';
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
+import { buscarAlunoAtivoPorTelefone } from '../crm/evoService.js';
 
 // ─── URLS DE MÍDIA ────────────────────────────────────────────────────────────
 
@@ -552,6 +553,23 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
 
   // 11. Buscar histórico e perfil
   const historicoBruto = await buscarHistorico(lead.id, 20);
+
+  // 11a. GUARD DE ALUNO ATIVO — lead novo sem histórico prévio
+  // Se o número não existia na tabela leads e acabou de ser criado (só 1 mensagem),
+  // consulta o EVO para verificar se é aluno ativo respondendo a um disparo CRM.
+  // Se for aluno, seta status 'crm' e encerra silenciosamente.
+  if (historicoBruto.length === 1) {
+    try {
+      const alunoEvo = await buscarAlunoAtivoPorTelefone(phone);
+      if (alunoEvo) {
+        await supabase.from('leads').update({ status: 'crm' }).eq('id', lead.id);
+        console.log(`🔕 Lead ${lead.id} identificado como aluno ativo EVO — status setado para crm, sem resposta`);
+        return;
+      }
+    } catch (err) {
+      console.warn(`⚠️ Guard aluno EVO falhou para ${phone}: ${err.message} — seguindo como lead normal`);
+    }
+  }
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
