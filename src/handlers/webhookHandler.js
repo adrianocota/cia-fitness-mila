@@ -37,6 +37,13 @@ const TEXTO_REENVIO_QUADRO  = 'Já te enviei o quadro de aulas antes. Quer que e
 const TEXTO_REENVIO_TABELA  = 'Já te enviei a tabela de planos antes. Quer que eu mande novamente?';
 const TEXTO_REENVIO_FLUXO   = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
 
+// ─── PADRÕES DE OFERTA DE MATERIAL (última msg Mila) ─────────────────────────
+// Usados pelo guard de confirmação de material (passo 12b)
+
+const REGEX_OFERTA_QUADRO = /(quer que eu (te )?envie|quer que eu mande|posso (te )?mandar|mando o quadro|envio o quadro|quadro de (horário|aula)|grade (de aula|fixa))/i;
+const REGEX_OFERTA_TABELA = /(quer que eu (te )?envie|quer que eu mande|posso (te )?mandar|mando a tabela|envio a tabela|tabela de planos|comparar os planos|tabela completa)/i;
+const REGEX_OFERTA_FLUXO  = /(quer que eu (te )?envie|quer que eu mande|posso (te )?mandar|fluxograma|tabela de movimento|horário.{0,20}vazio|menos movimento)/i;
+
 // ─── DEBOUNCE ─────────────────────────────────────────────────────────────────
 
 const DEBOUNCE_MS = 2500;
@@ -49,6 +56,7 @@ const REGEX = {
   personal: /\bpersonal\b/i,
   pagamentosInfo: /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|gympass|totalpass|tp2|gym.{0,5}pass)/i,
   confirmacaoReenvio: /^(sim|s|pode|manda|manda sim|quero|quero sim|claro|vai|ok|isso|por favor|pfv|pf|manda de novo|envia|envia sim)$/i,
+  confirmacaoMaterial: /^(sim|s|pode|manda|manda sim|quero|quero sim|claro|vai|ok|isso|por favor|pfv|pf|manda de novo|envia|envia sim|pode mandar|manda aí|vai lá|manda pra mim)$/i,
 };
 
 // ─── FUNÇÕES AUXILIARES ───────────────────────────────────────────────────────
@@ -144,6 +152,64 @@ async function tentarReenvio(phone, lead, conteudo, historicoBruto) {
   return false;
 }
 
+// ─── GUARD DE CONFIRMAÇÃO DE MATERIAL (novo) ─────────────────────────────────
+// Dispara quando:
+//   1. A mensagem do lead é uma confirmação curta ("pode mandar", "manda", "sim", etc.)
+//   2. A última mensagem da Mila continha oferta de envio de material (quadro/tabela/fluxo)
+//      MAS não era uma oferta de reenvio explícita (esse caso é tratado por tentarReenvio)
+// Objetivo: evitar que o classificador interprete "pode mandar" como FECHAR
+
+async function tentarEnvioMaterial(phone, lead, conteudo, historicoBruto) {
+  if (!REGEX.confirmacaoMaterial.test(conteudo.trim())) return false;
+
+  const ultima = ultimaSaidaMila(historicoBruto);
+  if (!ultima?.conteudo) return false;
+
+  const msg = ultima.conteudo;
+
+  // Não interceptar se já foi tratado pelo guard de reenvio (ofertas explícitas)
+  if (
+    msg === TEXTO_REENVIO_TABELA ||
+    msg === TEXTO_REENVIO_QUADRO ||
+    msg === TEXTO_REENVIO_FLUXO
+  ) return false;
+
+  // Mila ofereceu o quadro de aulas e ainda não foi enviado
+  if (REGEX_OFERTA_QUADRO.test(msg) && !quadroAulasJaFoiEnviado(historicoBruto)) {
+    await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas enviado]' });
+    await enviarTexto(phone, TEXTO_QUADRO_AULAS);
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
+    console.log(`📋 Guard material: quadro de aulas enviado para lead ${lead.id}`);
+    return true;
+  }
+
+  // Mila ofereceu a tabela completa e ainda não foi enviada
+  if (REGEX_OFERTA_TABELA.test(msg) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
+    const url = tabelaJaFoiEnviada(historicoBruto) ? TABELA_COMPLETA_URL : TABELA_PLANOS_URL;
+    const marker = tabelaJaFoiEnviada(historicoBruto) ? '[tabela completa enviada]' : '[tabela planos enviada]';
+    const texto = tabelaJaFoiEnviada(historicoBruto) ? TEXTO_TABELA_COMPLETA : TEXTO_TABELA_PLANOS;
+    await enviarImagem(phone, url, ' ');
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
+    await enviarTexto(phone, texto);
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: texto });
+    console.log(`📋 Guard material: tabela enviada para lead ${lead.id}`);
+    return true;
+  }
+
+  // Mila ofereceu o fluxograma e ainda não foi enviado
+  if (REGEX_OFERTA_FLUXO.test(msg) && !fluxogramaJaFoiEnviado(historicoBruto)) {
+    await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
+    await enviarTexto(phone, TEXTO_FLUXO);
+    await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
+    console.log(`📋 Guard material: fluxograma enviado para lead ${lead.id}`);
+    return true;
+  }
+
+  return false;
+}
+
 // ─── REFORMULAÇÃO ANTI-REPETIÇÃO ─────────────────────────────────────────────
 
 async function reformularSeNecessario(textoOriginal, historico) {
@@ -217,7 +283,7 @@ CONTINUAR = qualquer outra coisa, inclusive saudações.
 REGRAS DE CLASSIFICAÇÃO:
 
 FECHAR = lead confirma intenção de pagar/assinar AGORA de forma inequívoca. Ex: "quero assinar", "como pago", "vou fechar", "manda o link pra pagar", "quero fazer a matrícula agora".
-NÃO É FECHAR — use CONTINUAR para: "posso me matricular hoje?", "dá pra começar hoje?", "como funciona a matrícula?", "posso iniciar e depois fazer avaliação?", "posso começar antes da avaliação?", "quando posso começar?", "preciso de atestado?", "o que preciso pra me matricular?", "como funciona o primeiro dia?" — essas são perguntas sobre processo, não confirmação de pagamento.
+NÃO É FECHAR — use CONTINUAR para: "posso me matricular hoje?", "dá pra começar hoje?", "como funciona a matrícula?", "posso iniciar e depois fazer avaliação?", "posso começar antes da avaliação?", "quando posso começar?", "preciso de atestado?", "o que preciso pra me matricular?", "como funciona o primeiro dia?", "pode mandar", "manda", "sim", "pode", "claro", "vai", "ok" quando em resposta a uma oferta de envio de material — essas são confirmações de recebimento, não intenção de pagamento.
 
 ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para de me chamar", "fechei em outro lugar".
 ESCALAR = lead pediu explicitamente falar com humano, quer agendar visita com hora marcada e confirmou, ou insistiu em desconto pela segunda vez.
@@ -492,10 +558,16 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   let perfilLead = await buscarPerfil(lead.id);
   if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
 
-  // 12. GUARD DE REENVIO — roda ANTES do classificador
-  // Só age quando: (a) mensagem é confirmação curta E (b) última msg da Mila foi oferta de reenvio
+  // 12a. GUARD DE REENVIO — roda ANTES do classificador
+  // Só age quando: (a) mensagem é confirmação curta E (b) última msg da Mila foi oferta de reenvio explícita
   const reenvioFeito = await tentarReenvio(phone, lead, conteudo, historicoBruto);
   if (reenvioFeito) return;
+
+  // 12b. GUARD DE CONFIRMAÇÃO DE MATERIAL — roda ANTES do classificador
+  // Intercepta "pode mandar", "manda", "sim" etc. quando a Mila ofereceu envio de material
+  // Evita que o classificador interprete essas confirmações como FECHAR
+  const materialEnviado = await tentarEnvioMaterial(phone, lead, conteudo, historicoBruto);
+  if (materialEnviado) return;
 
   // 13. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
   const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, statusNormalizado);
@@ -532,14 +604,10 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (intencao === 'TABELA_COMPLETA') {
     try {
       if (!tabelaCompletaJaFoiEnviada(historicoBruto)) {
-        // Primeira vez — envia a tabela completa
         await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBruto);
         return;
       } else {
-        // Tabela já foi enviada — lead está fazendo pergunta específica sobre planos
-        // GPT responde com contexto (não oferece reenvio)
         console.log(`📋 Tabela completa já enviada — respondendo pergunta específica via GPT (lead ${lead.id})`);
-        // Segue para o bloco CONTINUAR abaixo
       }
     } catch (e) { console.error('❌ Tabela completa:', e.message); return; }
   }
@@ -547,14 +615,10 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (intencao === 'TABELA_BASICA') {
     try {
       if (!tabelaJaFoiEnviada(historicoBruto)) {
-        // Primeira vez — envia a tabela básica
         await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
         return;
       } else {
-        // Tabela já foi enviada — lead está fazendo pergunta específica sobre planos
-        // GPT responde com contexto (não oferece reenvio)
         console.log(`📋 Tabela básica já enviada — respondendo pergunta específica via GPT (lead ${lead.id})`);
-        // Segue para o bloco CONTINUAR abaixo
       }
     } catch (e) { console.error('❌ Tabela básica:', e.message); return; }
   }
@@ -562,14 +626,10 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (intencao === 'QUADRO_AULAS') {
     try {
       if (!quadroAulasJaFoiEnviado(historicoBruto)) {
-        // Primeira vez — envia o quadro
         await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
         return;
       } else {
-        // Quadro já foi enviado — lead está fazendo pergunta específica sobre aulas
-        // GPT responde com contexto (não oferece reenvio)
         console.log(`📋 Quadro de aulas já enviado — respondendo pergunta específica via GPT (lead ${lead.id})`);
-        // Segue para o bloco CONTINUAR abaixo
       }
     } catch (e) { console.error('❌ Quadro aulas:', e.message); return; }
   }
@@ -577,13 +637,10 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   if (intencao === 'FLUXO') {
     try {
       if (!fluxogramaJaFoiEnviado(historicoBruto)) {
-        // Primeira vez — envia o fluxograma
         await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
         return;
       } else {
-        // Fluxograma já foi enviado — responde via GPT
         console.log(`📋 Fluxograma já enviado — respondendo pergunta específica via GPT (lead ${lead.id})`);
-        // Segue para o bloco CONTINUAR abaixo
       }
     } catch (e) { console.error('❌ Fluxograma:', e.message); return; }
   }
@@ -639,7 +696,7 @@ Responda com 1-2 frases dizendo que isso é com o médico. Tom casual de WhatsAp
         mensagemNova: conteudo,
       });
       await enviarTexto(phone, respostaMed);
-      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaMed });
+      await salvarMensagem({ leadId: lead.id, direcao: 'mila', origem: 'mila', conteudo: respostaMed });
     } catch (e) { console.error('❌ Medicamento:', e.message); }
     return;
   }
@@ -685,8 +742,6 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
   }
 
   // CONTINUAR — GPT livre
-  // Também chega aqui quando TABELA_BASICA, TABELA_COMPLETA, QUADRO_AULAS ou FLUXO
-  // já foram enviados e o lead está fazendo uma pergunta específica sobre o conteúdo
   const silencio = diasDeSilencio(lead);
   let mensagemComContexto = conteudo;
   if (silencio >= 2) {
