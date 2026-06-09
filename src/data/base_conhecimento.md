@@ -1,7 +1,7 @@
 # BASE DE CONHECIMENTO — MILA / CIA DO FITNESS
 
-**Versão:** 6.6
-**Atualizada:** 05/06/2026
+**Versão:** 6.7
+**Atualizada:** 09/06/2026
 **Aplicação:** Atendimento de leads via WhatsApp (tráfego pago Meta Ads e disparos ChatPRO)
 
 ---
@@ -665,8 +665,8 @@ Inclui peso, altura, circunferências, % de gordura, pressão arterial e flexibi
 Pra que serve:
 > "A avaliação física serve pra o professor ajustar seu treino de acordo com suas características pessoais e acompanhar sua evolução."
 
-Pode começar sem fazer:
-> "O ideal é passar pela avaliação física antes de começar, mas como a agenda pode ter alguns dias de espera, você já pode iniciar os treinos. O professor faz uma anamnese e prescreve seu treino na hora. Depois da avaliação, ele ajusta tudo com base nos resultados."
+**Quando lead perguntar se precisa fazer avaliação antes de começar:**
+> "A avaliação é importante e recomendada, mas ela precisa ser agendada e pode ter alguns dias de espera. Você já pode iniciar os treinos normalmente enquanto isso. Depois da avaliação, o professor ajusta o treino com base nos resultados."
 
 Frequência:
 > "Não tem limite de vezes. A recomendação é a cada 3 meses."
@@ -929,4 +929,4 @@ NUNCA afirme que temos algo que não está confirmado na base. Em caso de dúvid
 
 ---
 
-**FIM DA BASE DE CONHECIMENTO — v6.6**
+**FIM DA BASE DE CONHECIMENTO — v6.7**
