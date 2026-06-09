@@ -12,10 +12,8 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const LINK_CHECKOUT_GENERICO = 'https://evo-totem.w12app.com.br/CIAFITNESS/1/site/checkout/';
 
 // ─── CACHE DE MEMBROS ─────────────────────────────────────────────────────────
-// Evita múltiplas requisições individuais nos gatilhos de cobrança recusada.
-// Carregado uma vez por execução do CRM e reutilizado em todos os gatilhos.
 
-let _cacheMembros = null; // Map<idMember, { telefone, nome, linkPagamento }>
+let _cacheMembros = null;
 
 async function obterCacheMembros() {
   if (_cacheMembros) {
@@ -27,7 +25,6 @@ async function obterCacheMembros() {
   const mapa = new Map();
   let skip = 0;
 
-  // Busca ativos e inativos para cobrir inadimplentes de ambos os status
   for (const status of [1, 2]) {
     skip = 0;
     while (true) {
@@ -235,7 +232,6 @@ export async function gatilho_30diasAposVencimento() {
 // ─────────────────────────────────────────────
 
 async function cobrancasPorData(data) {
-  // Busca lista de cobranças recusadas
   const lista = [];
   let skip = 0;
   while (true) {
@@ -251,7 +247,6 @@ async function cobrancasPorData(data) {
 
   if (lista.length === 0) return [];
 
-  // Usa cache de membros — sem requisições individuais
   const cacheMembros = await obterCacheMembros();
 
   const resultado = [];
@@ -307,6 +302,42 @@ export async function gatilho_7diasAposOportunidade() {
     nome: (p.name || p.firstName || '').split(' ')[0] || 'você',
     gatilho: '7_dias_apos_oportunidade',
   })).filter(p => p.telefone);
+}
+
+// ─────────────────────────────────────────────
+// IDENTIFICAÇÃO DE ALUNO ATIVO POR TELEFONE
+// Usado pelo webhookHandler para evitar tratar alunos como leads de vendas
+// quando respondem a disparos CRM pelo número da Mila.
+// ─────────────────────────────────────────────
+
+export async function buscarAlunoAtivoPorTelefone(telefone) {
+  try {
+    const numLimpo = telefone.replace(/\D/g, '');
+    const semDDI = numLimpo.startsWith('55') ? numLimpo.slice(2) : numLimpo;
+
+    const res = await fetch(
+      `${EVO_BASE_V2}/members?take=10&skip=0&status=1&cellphone=${semDDI}`,
+      { headers }
+    );
+    if (!res.ok) return null;
+    const lista = await res.json();
+    if (!lista || lista.length === 0) return null;
+
+    const encontrado = lista.find(m => {
+      const t = tel(m);
+      if (!t) return false;
+      const tLimpo = t.replace(/\D/g, '');
+      return tLimpo.endsWith(semDDI) || semDDI.endsWith(tLimpo.slice(-8));
+    });
+
+    if (encontrado) {
+      console.log(`👤 Aluno ativo EVO encontrado para ${telefone}: ${nome(encontrado)}`);
+    }
+    return encontrado || null;
+  } catch (err) {
+    console.warn(`⚠️ Erro ao buscar aluno por telefone no EVO: ${err.message}`);
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────
