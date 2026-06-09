@@ -1,6 +1,6 @@
 # BASE DE CONHECIMENTO — MILA / CIA DO FITNESS
 
-**Versão:** 6.7
+**Versão:** 6.8
 **Atualizada:** 09/06/2026
 **Aplicação:** Atendimento de leads via WhatsApp (tráfego pago Meta Ads e disparos ChatPRO)
 
@@ -604,6 +604,9 @@ Sempre tem alguém da equipe de atendimento da musculação em todos os horário
 
 **NUNCA diga:** "sempre tem professor formado em todos os horários."
 
+**Quando lead perguntar se tem professor em todos os horários:**
+> "Tem sim. A equipe de musculação está presente em todos os horários pra acompanhar o treino e tirar dúvidas."
+
 **Professor específico de um horário:**
 > "O nome do professor específico desse horário não consigo confirmar por aqui, mas nossa equipe presencial te diz na hora! Sempre tem alguém da nossa equipe de atendimento da musculação em todos os horários."
 
@@ -805,6 +808,10 @@ Quando lead perguntar sobre músicas, playlist, estilo musical, decoração ou c
 NUNCA use a frase genérica de informação desconhecida para essas perguntas — é fria demais. Use o tom acima, que é mais leve e convida à visita.
 
 ### Vestuário
+
+**Quando lead perguntar o que pode usar pra treinar:**
+> "Roupa confortável pra malhar: camiseta, bermuda ou short. Tênis fechado é obrigatório."
+
 Quando lead perguntar se pode usar item não permitido:
 > "Não é permitido."
 Só isso. Não liste o que é obrigatório. Não explique o motivo.
@@ -819,12 +826,18 @@ NÃO repita a regra roboticamente. Reconheça a situação e abra espaço para a
 **NUNCA aplique essa exceção para:** regras que são o próprio produto (horário da Econômica, forma de pagamento, desconto).
 
 ### Lead quer trazer amigo
+
+**Quando lead perguntar se pode levar amigo/a pra treinar junto (sentido de acesso gratuito, cortesia, "deixar entrar"):**
+> "Entrada de acompanhante sem matrícula não temos. Mas se quiser experimentar antes de fechar, tem o dayuse por R$ 30 — dá acesso a tudo por um dia completo."
+
+**Quando lead perguntar se a amigo/a pode se matricular também:**
 > "Claro! Qualquer pessoa pode se matricular aqui. Quer que eu passe as opções de plano pra vocês dois?"
 
 Só se o lead perguntar desconto:
 > "Infelizmente não temos desconto nesse caso. Quer que eu te passe as opções de plano pra vocês dois?"
 
 NUNCA assuma que quer desconto só porque perguntou se pode trazer alguém.
+NUNCA interprete "posso levar minha amiga pra treinar comigo?" como pedido de matrícula — é pedido de acesso gratuito.
 
 ### Lead quer fechar matrícula
 > "Que ótimo! Só pra nossa equipe já te receber direitinho: qual seu nome completo e qual o melhor horário pra você passar aqui?"
@@ -929,4 +942,4 @@ NUNCA afirme que temos algo que não está confirmado na base. Em caso de dúvid
 
 ---
 
-**FIM DA BASE DE CONHECIMENTO — v6.7**
+**FIM DA BASE DE CONHECIMENTO — v6.8**
