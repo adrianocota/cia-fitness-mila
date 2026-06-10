@@ -39,24 +39,37 @@ function extrairLead(body) {
   if (!telefone.startsWith('55')) telefone = '55' + telefone;
   return {
     telefone,
-    nome:       p.nickName || p.firstName || 'você',
-    instrutor:  null,
-    valor:      null,
+    nome: p.nickName || p.firstName || 'você',
+    instrutor: null,
+    valor: null,
     vencimento: ctx.moment === 'before'
       ? new Date(Date.now() + 16 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       : null,
   };
 }
 
+async function registrarDisparoCRM(telefone, nome, gatilho, status = 'enviado') {
+  try {
+    const hoje = new Date().toISOString().split('T')[0];
+    await supabase.from('crm_disparos').insert({
+      data: hoje,
+      telefone,
+      gatilho,
+      nome,
+      status,
+    });
+  } catch (e) {
+    console.warn('⚠️ Erro ao registrar disparo CRM:', e.message);
+  }
+}
+
 export async function processarEvoCRM(body, token) {
   console.log('📋 EVO CRM payload completo:', JSON.stringify(body));
-
   const gatilho = resolverGatilho(body);
   if (!gatilho) {
     console.log(`⚠️ eventType não mapeado: ${body.eventType} — ignorado`);
     return;
   }
-
   const leadDados = extrairLead(body);
   if (!leadDados) {
     console.log(`⚠️ Telefone ausente — gatilho ${gatilho} ignorado`);
@@ -67,13 +80,11 @@ export async function processarEvoCRM(body, token) {
     });
     return;
   }
-
   const msg = montarMensagem(gatilho, leadDados);
   if (!msg) {
     console.log(`⚠️ montarMensagem retornou null para gatilho ${gatilho}`);
     return;
   }
-
   try {
     if (msg.imagem) {
       await enviarImagem(leadDados.telefone, msg.imagem, '');
@@ -81,8 +92,11 @@ export async function processarEvoCRM(body, token) {
     }
     await enviarTexto(leadDados.telefone, msg.texto);
     console.log(`✅ [${gatilho}] ${leadDados.nome} (${leadDados.telefone})`);
+    // Registra disparo com sucesso
+    await registrarDisparoCRM(leadDados.telefone, leadDados.nome, gatilho, 'enviado');
   } catch (e) {
     console.error(`❌ Erro ao enviar [${gatilho}] ${leadDados.telefone}:`, e.message);
+    await registrarDisparoCRM(leadDados.telefone, leadDados.nome, gatilho, 'erro');
     await gravarLog({
       contexto: 'evo-crm',
       mensagem: `Erro ao enviar gatilho ${gatilho}`,
@@ -91,7 +105,6 @@ export async function processarEvoCRM(body, token) {
     });
     return;
   }
-
   // Registra o lead no Supabase com status 'crm' para silenciar respostas
   try {
     const lead = await buscarOuCriarLead({ telefone: leadDados.telefone, nome: leadDados.nome });
