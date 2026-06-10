@@ -21,11 +21,7 @@ async function jaDisparado(telefone, gatilho) {
       .eq('telefone', telefone)
       .eq('gatilho', gatilho)
       .maybeSingle();
-
-    if (error) {
-      console.warn('⚠️ Erro ao verificar deduplicação CRM:', error.message);
-      return false;
-    }
+    if (error) { console.warn('⚠️ Erro ao verificar deduplicação CRM:', error.message); return false; }
     return !!data;
   } catch (e) {
     console.warn('⚠️ Erro inesperado na deduplicação CRM:', e.message);
@@ -33,11 +29,15 @@ async function jaDisparado(telefone, gatilho) {
   }
 }
 
-async function registrarDisparo(telefone, gatilho) {
+async function registrarDisparo(telefone, nome, gatilho, status = 'enviado') {
   try {
-    await supabase
-      .from('crm_disparos')
-      .insert({ data: dataHoje(), telefone, gatilho });
+    await supabase.from('crm_disparos').insert({
+      data: dataHoje(),
+      telefone,
+      gatilho,
+      nome: nome || null,
+      status,
+    });
   } catch (e) {
     console.warn('⚠️ Erro ao registrar disparo CRM:', e.message);
   }
@@ -49,30 +49,28 @@ async function disparar(lista, gatilho) {
   let enviados = 0, erros = 0, pulados = 0;
   for (const lead of lista) {
     if (!lead.telefone) continue;
-
     const duplicado = await jaDisparado(lead.telefone, gatilho);
     if (duplicado) {
       console.log(`⏭️ [${gatilho}] já enviado hoje para ${lead.telefone}`);
       pulados++;
       continue;
     }
-
     const msg = montarMensagem(gatilho, lead);
     if (!msg) continue;
-
     try {
       if (msg.imagem) {
         await enviarImagem(lead.telefone, msg.imagem, '');
         await sleep(1500);
       }
       await enviarTexto(lead.telefone, msg.texto);
-      await registrarDisparo(lead.telefone, gatilho);
+      await registrarDisparo(lead.telefone, lead.nome, gatilho, 'enviado');
       enviados++;
       console.log(`✅ [${gatilho}] ${lead.nome} (${lead.telefone})`);
       await sleep(INTERVALO_WHATSAPP);
     } catch (e) {
       erros++;
       console.error(`❌ ${lead.telefone}:`, e.message);
+      await registrarDisparo(lead.telefone, lead.nome, gatilho, 'erro');
       await gravarLog({
         contexto: 'crm',
         mensagem: `Erro ${gatilho}`,
