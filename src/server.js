@@ -93,8 +93,8 @@ app.post('/crm/transmissao', async (req, res) => {
 // ================================================
 
 if (config.server.env === 'production') {
-  // Follow-up: a cada hora
-  cron.schedule('0 * * * *', async () => {
+  // Follow-up: a cada hora, apenas entre 9h e 20h, seg a sáb
+  cron.schedule('0 9-20 * * 1-6', async () => {
     try { await rodarFollowups(); }
     catch (e) { console.error('❌ Follow-up:', e.message); }
   }, { timezone: 'America/Sao_Paulo' });
@@ -106,7 +106,7 @@ if (config.server.env === 'production') {
     catch (e) { console.error('❌ CRM automático:', e.message); }
   }, { timezone: 'America/Sao_Paulo' });
 
-  console.log('✅ Cron follow-up agendado (a cada hora)');
+  console.log('✅ Cron follow-up agendado (9h–20h, seg–sáb)');
   console.log('✅ Cron CRM agendado (08h diário)');
   console.log('✅ CRM via webhook EVO CRM 2.0 — aguardando eventos em /evo-crm');
 } else {
