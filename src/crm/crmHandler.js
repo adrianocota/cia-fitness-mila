@@ -2,21 +2,6 @@ import { montarMensagem } from './mensagens.js';
 import { enviarTexto, enviarImagem } from '../services/zapi.js';
 import { gravarLog } from '../services/supabase.js';
 import supabase from '../services/supabase.js';
-import {
-  gatilho_9diasSemPresenca,
-  gatilho_18diasSemPresenca,
-  gatilho_aniversario,
-  gatilho_1diaAposMatricula,
-  gatilho_30diasAposMatricula,
-  gatilho_16diasAntesVencimento,
-  gatilho_5diasAposVencimento,
-  gatilho_30diasAposVencimento,
-  gatilho_cobrancaRecusada,
-  gatilho_cobrancaRecusada3d,
-  gatilho_cobrancaRecusada7d,
-  gatilho_posVisita,
-  gatilho_7diasAposOportunidade,
-} from './evoService.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const INTERVALO_WHATSAPP = 4000;
@@ -99,23 +84,31 @@ async function disparar(lista, gatilho) {
 
 // ─── ENTRY POINT ──────────────────────────────────────────────────────────────
 
+// ⚠️ CRON PULL SUSPENSO — ativar gatilhos um a um após validação.
+// Para ativar um gatilho: descomentar a linha correspondente na lista abaixo
+// e importar a função no topo do arquivo.
+
 export async function rodarCRM() {
   console.log('📋 CRM iniciado —', new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
+  console.log('⚠️ CRM automático suspenso — nenhum gatilho ativo no momento.');
+  return {};
+
+  /* GATILHOS — habilitar um a um após validação:
 
   const gatilhos = [
-    { nome: '9_dias_sem_presenca',      fn: gatilho_9diasSemPresenca      },
-    { nome: '18_dias_sem_presenca',     fn: gatilho_18diasSemPresenca     },
-    { nome: 'aniversario',              fn: gatilho_aniversario            },
-    { nome: '1_dia_apos_matricula',     fn: gatilho_1diaAposMatricula     },
-    { nome: '30_dias_apos_matricula',   fn: gatilho_30diasAposMatricula   },
-    { nome: '16_dias_antes_vencimento', fn: gatilho_16diasAntesVencimento },
-    { nome: '5_dias_apos_vencimento',   fn: gatilho_5diasAposVencimento   },
-    { nome: '30_dias_apos_vencimento',  fn: gatilho_30diasAposVencimento  },
-    { nome: 'cobranca_recusada',        fn: gatilho_cobrancaRecusada      },
-    { nome: 'cobranca_recusada_3d',     fn: gatilho_cobrancaRecusada3d    },
-    { nome: 'cobranca_recusada_7d',     fn: gatilho_cobrancaRecusada7d    },
-    { nome: 'pos_visita',               fn: gatilho_posVisita              },
-    { nome: '7_dias_apos_oportunidade', fn: gatilho_7diasAposOportunidade },
+    // { nome: '9_dias_sem_presenca',      fn: gatilho_9diasSemPresenca      },
+    // { nome: '18_dias_sem_presenca',     fn: gatilho_18diasSemPresenca     },
+    // { nome: 'aniversario',              fn: gatilho_aniversario            },
+    // { nome: '1_dia_apos_matricula',     fn: gatilho_1diaAposMatricula     },
+    // { nome: '30_dias_apos_matricula',   fn: gatilho_30diasAposMatricula   },
+    // { nome: '16_dias_antes_vencimento', fn: gatilho_16diasAntesVencimento },
+    // { nome: '5_dias_apos_vencimento',   fn: gatilho_5diasAposVencimento   },
+    // { nome: '30_dias_apos_vencimento',  fn: gatilho_30diasAposVencimento  },
+    // { nome: 'cobranca_recusada',        fn: gatilho_cobrancaRecusada      },
+    // { nome: 'cobranca_recusada_3d',     fn: gatilho_cobrancaRecusada3d    },
+    // { nome: 'cobranca_recusada_7d',     fn: gatilho_cobrancaRecusada7d    },
+    // { nome: 'pos_visita',               fn: gatilho_posVisita              },
+    // { nome: '7_dias_apos_oportunidade', fn: gatilho_7diasAposOportunidade },
   ];
 
   const resultado = {};
@@ -139,6 +132,7 @@ export async function rodarCRM() {
 
   console.log('✅ CRM concluído', resultado);
   return resultado;
+  */
 }
 
 export async function rodarTransmissao({ lista, texto, imagemUrl = null }) {
