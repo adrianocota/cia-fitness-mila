@@ -10,9 +10,13 @@ import { enviarTexto } from '../services/zapi.js';
 import { gerarResposta } from '../services/openai.js';
 import { buscarPerfil, formatarPerfilParaPrompt } from '../services/leadProfile.js';
 
+// ─── FUSO HORÁRIO ─────────────────────────────────────────────────────────────
+
+function getHoraBRT() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+}
+
 // ─── CONTEXTO DE CADA DIA ─────────────────────────────────────────────────────
-// Define o objetivo e tom de cada follow-up. O GPT usa isso junto com o perfil
-// para gerar uma mensagem personalizada — nunca igual para dois leads.
 
 const CONTEXTO_FOLLOWUP = {
   1: {
@@ -33,7 +37,7 @@ const CONTEXTO_FOLLOWUP = {
   },
 };
 
-// ─── FALLBACK (caso o GPT falhe) ─────────────────────────────────────────────
+// ─── FALLBACK ─────────────────────────────────────────────────────────────────
 
 const MENSAGENS_FALLBACK = {
   1: (nome) =>
@@ -53,7 +57,6 @@ async function gerarMensagemFollowup(dia, lead, perfil) {
   const perfilTexto = perfil ? formatarPerfilParaPrompt(perfil) : '';
   const nome = lead.nome ? lead.nome.split(' ')[0] : null;
 
-  // Se não tem nada no perfil, usa fallback direto para economizar tokens
   if (!perfilTexto) {
     console.log(`📝 Lead ${lead.id} sem perfil — usando mensagem padrão dia ${dia}`);
     return MENSAGENS_FALLBACK[dia](nome);
@@ -100,7 +103,7 @@ REGRAS OBRIGATÓRIAS:
 // ─── JANELA DE HORÁRIO ────────────────────────────────────────────────────────
 
 function dentroDaJanela(dia) {
-  const agora = new Date();
+  const agora = getHoraBRT();
   const hora = agora.getHours();
   const diaSemana = agora.getDay();
   if (diaSemana === 0) return false;
@@ -130,7 +133,6 @@ async function processarFollowupDia(dia) {
 
   for (const lead of leads) {
     try {
-      // Guard: lead já matriculado ou com visita agendada — não envia follow-up
       if (['matriculado', 'agendado', 'encerrado'].includes(lead.status)) {
         console.log(`⏭️ Lead ${lead.id} com status '${lead.status}'. Pulando follow-up.`);
         continue;
@@ -142,10 +144,7 @@ async function processarFollowupDia(dia) {
         continue;
       }
 
-      // Busca perfil para personalização
       const perfil = await buscarPerfil(lead.id);
-
-      // Gera mensagem personalizada (com fallback automático)
       const mensagem = await gerarMensagemFollowup(dia, lead, perfil);
 
       await enviarTexto(lead.telefone, mensagem);
@@ -158,13 +157,11 @@ async function processarFollowupDia(dia) {
       await registrarFollowup(lead.id, dia);
       console.log(`✅ Follow-up dia ${dia} enviado pro lead ${lead.id}`);
 
-      // Após o último follow-up, marca como perdido
       if (dia === 14) {
         await atualizarStatusLead(lead.id, 'perdido', 'Sem resposta após follow-up dia 14');
         console.log(`🔴 Lead ${lead.id} marcado como perdido após follow-up dia 14`);
       }
 
-      // Intervalo entre envios para não parecer spam
       await new Promise((resolve) => setTimeout(resolve, 2000));
     } catch (error) {
       console.error(`❌ Erro ao processar follow-up do lead ${lead.id}:`, error.message);
@@ -176,7 +173,7 @@ async function processarFollowupDia(dia) {
 
 export async function rodarFollowups() {
   console.log('🚀 Iniciando ciclo de follow-ups');
-  console.log(`Hora atual: ${new Date().toLocaleString('pt-BR')}`);
+  console.log(`Hora atual: ${getHoraBRT().toLocaleString('pt-BR')}`);
   for (const dia of [1, 3, 7, 14]) {
     await processarFollowupDia(dia);
   }
