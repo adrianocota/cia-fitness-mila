@@ -11,38 +11,43 @@ const LABEL_PARA_GATILHO = {
   'mila - aniversário cliente ativo': 'aniversario',
   'mila - aniversario cliente ativo': 'aniversario',
 
-  // Cobrança recusada
-  'mila - cobrança recusada': 'cobranca_recusada',
-  'mila - cobranca recusada': 'cobranca_recusada',
-
-  // Ausência
+  // Presença
   'mila - 9 dias sem presença': '9_dias_sem_presenca',
   'mila - 9 dias sem presenca': '9_dias_sem_presenca',
   'mila - 18 dias sem presença': '18_dias_sem_presenca',
   'mila - 18 dias sem presenca': '18_dias_sem_presenca',
 
   // Matrícula
-  'mila - boas-vindas': '1_dia_apos_matricula',
-  'mila - 1 mês de academia': '30_dias_apos_matricula',
-  'mila - 1 mes de academia': '30_dias_apos_matricula',
+  'mila - 1 dia após matrícula': '1_dia_apos_matricula',
+  'mila - 1 dia apos matricula': '1_dia_apos_matricula',
+  'mila - 30 dias após matrícula': '30_dias_apos_matricula',
+  'mila - 30 dias apos matricula': '30_dias_apos_matricula',
 
   // Vencimento
-  'mila - aviso de vencimento': '16_dias_antes_vencimento',
-  'mila - plano vencido': '5_dias_apos_vencimento',
-  'mila - reconexão': '30_dias_apos_vencimento',
-  'mila - reconexao': '30_dias_apos_vencimento',
+  'mila - 16 dias antes do vencimento': '16_dias_antes_vencimento',
+  'mila - 16 dias antes vencimento': '16_dias_antes_vencimento',
+  'mila - 5 dias após vencimento': '5_dias_apos_vencimento',
+  'mila - 5 dias apos vencimento': '5_dias_apos_vencimento',
+  'mila - 30 dias após vencimento': '30_dias_apos_vencimento',
+  'mila - 30 dias apos vencimento': '30_dias_apos_vencimento',
 
-  // Cobrança recusada com dias
-  'mila - cobrança recusada 3 dias': 'cobranca_recusada_3d',
-  'mila - cobranca recusada 3 dias': 'cobranca_recusada_3d',
-  'mila - cobrança recusada 7 dias': 'cobranca_recusada_7d',
-  'mila - cobranca recusada 7 dias': 'cobranca_recusada_7d',
+  // Reativação (ex-aluno cancelado — usa mesma mensagem de reconexão)
+  'mila - reativação ex-aluno 30 dias': '30_dias_apos_vencimento',
+  'mila - reativacao ex-aluno 30 dias': '30_dias_apos_vencimento',
+
+  // Cobrança recusada
+  'mila - cobrança recusada': 'cobranca_recusada',
+  'mila - cobranca recusada': 'cobranca_recusada',
+  'mila - cobrança recusada - 3 dias': 'cobranca_recusada_3d',
+  'mila - cobranca recusada - 3 dias': 'cobranca_recusada_3d',
+  'mila - cobrança recusada - 7 dias': 'cobranca_recusada_7d',
+  'mila - cobranca recusada - 7 dias': 'cobranca_recusada_7d',
 
   // Prospect
-  'mila - pós-visita': 'pos_visita',
-  'mila - pos-visita': 'pos_visita',
-  'mila - 7 dias após oportunidade': '7_dias_apos_oportunidade',
-  'mila - 7 dias apos oportunidade': '7_dias_apos_oportunidade',
+  'mila - pós-visita oportunidade - 1 dia': 'pos_visita',
+  'mila - pos-visita oportunidade - 1 dia': 'pos_visita',
+  'mila - 7 dias após cadastro de oportunidade': '7_dias_apos_oportunidade',
+  'mila - 7 dias apos cadastro de oportunidade': '7_dias_apos_oportunidade',
 };
 
 function resolverGatilho(body) {
@@ -53,7 +58,7 @@ function resolverGatilho(body) {
     return LABEL_PARA_GATILHO[label];
   }
 
-  // Fallback: tenta por eventType semântico (caso alguma automação use o padrão correto)
+  // Fallback: tenta por eventType semântico
   const { eventType, eventContext } = body;
   const days = eventContext?.daysOffset ?? 0;
   const moment = eventContext?.moment ?? '';
@@ -75,6 +80,8 @@ function resolverGatilho(body) {
       return 'cobranca_recusada';
     case 'crm.automation.prospect_registration':
       return days <= 2 ? 'pos_visita' : '7_dias_apos_oportunidade';
+    case 'crm.automation.contract_cancellation':
+      return '30_dias_apos_vencimento';
     default:
       return null;
   }
@@ -86,7 +93,6 @@ function extrairLead(body) {
   if (!telefone) return null;
   if (!telefone.startsWith('55')) telefone = '55' + telefone;
 
-  // Usa contractSigning como link de pagamento personalizado se disponível
   const linkPagamento = body.links?.contractSigning || body.links?.checkout || null;
 
   return {
@@ -151,7 +157,6 @@ export async function processarEvoCRM(body, token) {
     return;
   }
 
-  // Deduplicação: não disparar duas vezes no mesmo dia para o mesmo gatilho
   const duplicado = await jaDisparado(leadDados.telefone, gatilho);
   if (duplicado) {
     console.log(`⏭️ [${gatilho}] ${leadDados.telefone} já disparado hoje — ignorado`);
@@ -184,7 +189,6 @@ export async function processarEvoCRM(body, token) {
     return;
   }
 
-  // Marca lead como crm no Supabase para silenciar respostas da Mila
   try {
     const lead = await buscarOuCriarLead({ telefone: leadDados.telefone, nome: leadDados.nome });
     await supabase.from('leads').update({
