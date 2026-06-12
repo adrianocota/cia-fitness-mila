@@ -5,7 +5,36 @@ import supabase from '../services/supabase.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Mapeamento por eventLabel (enviado pelo EVO — eventType é genérico "regra_N")
+// ─── FILA DE DISPAROS ─────────────────────────────────────────────────────────
+// Processa um disparo por vez com intervalo de 45s entre cada um.
+// Evita banimento por disparo em massa simultâneo.
+
+const INTERVALO_ENTRE_DISPAROS_MS = 45000; // 45 segundos
+let filaProcessando = false;
+const fila = [];
+
+async function processarFila() {
+  if (filaProcessando) return;
+  filaProcessando = true;
+  console.log(`📬 Fila CRM iniciada — ${fila.length} item(s) pendente(s)`);
+  while (fila.length > 0) {
+    const item = fila.shift();
+    try {
+      await executarDisparo(item);
+    } catch (e) {
+      console.error(`❌ Erro ao processar fila CRM:`, e.message);
+    }
+    if (fila.length > 0) {
+      console.log(`⏳ Aguardando ${INTERVALO_ENTRE_DISPAROS_MS / 1000}s antes do próximo disparo CRM... (${fila.length} restante(s))`);
+      await sleep(INTERVALO_ENTRE_DISPAROS_MS);
+    }
+  }
+  filaProcessando = false;
+  console.log(`✅ Fila CRM finalizada`);
+}
+
+// ─── MAPEAMENTO DE LABELS ─────────────────────────────────────────────────────
+
 const LABEL_PARA_GATILHO = {
   // Aniversário
   'mila - aniversário cliente ativo': 'aniversario',
@@ -31,7 +60,7 @@ const LABEL_PARA_GATILHO = {
   'mila - 30 dias após vencimento': '30_dias_apos_vencimento',
   'mila - 30 dias apos vencimento': '30_dias_apos_vencimento',
 
-  // Reativação (ex-aluno cancelado — usa mesma mensagem de reconexão)
+  // Reativação
   'mila - reativação ex-aluno 30 dias': '30_dias_apos_vencimento',
   'mila - reativacao ex-aluno 30 dias': '30_dias_apos_vencimento',
 
@@ -53,12 +82,10 @@ const LABEL_PARA_GATILHO = {
 function resolverGatilho(body) {
   const label = (body.eventLabel ?? '').toLowerCase().trim();
 
-  // Tenta por label primeiro (confiável)
   if (LABEL_PARA_GATILHO[label]) {
     return LABEL_PARA_GATILHO[label];
   }
 
-  // Fallback: tenta por eventType semântico
   const { eventType, eventContext } = body;
   const days = eventContext?.daysOffset ?? 0;
   const moment = eventContext?.moment ?? '';
@@ -109,11 +136,7 @@ async function registrarDisparoCRM(telefone, nome, gatilho, status = 'enviado') 
   try {
     const hoje = new Date().toISOString().split('T')[0];
     await supabase.from('crm_disparos').insert({
-      data: hoje,
-      telefone,
-      gatilho,
-      nome,
-      status,
+      data: hoje, telefone, gatilho, nome, status,
     });
   } catch (e) {
     console.warn('⚠️ Erro ao registrar disparo CRM:', e.message);
@@ -137,26 +160,9 @@ async function jaDisparado(telefone, gatilho) {
   }
 }
 
-export async function processarEvoCRM(body, token) {
-  console.log('📋 EVO CRM payload completo:', JSON.stringify(body));
+// ─── EXECUÇÃO DO DISPARO ──────────────────────────────────────────────────────
 
-  const gatilho = resolverGatilho(body);
-  if (!gatilho) {
-    console.log(`⚠️ eventType não mapeado: ${body.eventType} / label: "${body.eventLabel}" — ignorado`);
-    return;
-  }
-
-  const leadDados = extrairLead(body);
-  if (!leadDados) {
-    console.log(`⚠️ Telefone ausente — gatilho ${gatilho} ignorado`);
-    await gravarLog({
-      contexto: 'evo-crm',
-      mensagem: 'Telefone ausente no payload',
-      payload: { gatilho, eventType: body.eventType, eventLabel: body.eventLabel },
-    });
-    return;
-  }
-
+async function executarDisparo({ gatilho, leadDados }) {
   const duplicado = await jaDisparado(leadDados.telefone, gatilho);
   if (duplicado) {
     console.log(`⏭️ [${gatilho}] ${leadDados.telefone} já disparado hoje — ignorado`);
@@ -191,12 +197,44 @@ export async function processarEvoCRM(body, token) {
 
   try {
     const lead = await buscarOuCriarLead({ telefone: leadDados.telefone, nome: leadDados.nome });
-    await supabase.from('leads').update({
-      status: 'crm',
-      ultima_interacao_em: new Date().toISOString(),
-    }).eq('id', lead.id);
-    console.log(`📌 Lead ${lead.id} marcado como crm`);
+    if (lead) {
+      await supabase.from('leads').update({
+        status: 'crm',
+        ultima_interacao_em: new Date().toISOString(),
+      }).eq('id', lead.id);
+      console.log(`📌 Lead ${lead.id} marcado como crm`);
+    }
   } catch (e) {
     console.error(`❌ Erro ao marcar lead como crm:`, e.message);
   }
+}
+
+// ─── ENTRY POINT ─────────────────────────────────────────────────────────────
+
+export async function processarEvoCRM(body, token) {
+  console.log('📋 EVO CRM recebido:', JSON.stringify(body).slice(0, 300));
+
+  const gatilho = resolverGatilho(body);
+  if (!gatilho) {
+    console.log(`⚠️ eventType não mapeado: ${body.eventType} / label: "${body.eventLabel}" — ignorado`);
+    return;
+  }
+
+  const leadDados = extrairLead(body);
+  if (!leadDados) {
+    console.log(`⚠️ Telefone ausente — gatilho ${gatilho} ignorado`);
+    await gravarLog({
+      contexto: 'evo-crm',
+      mensagem: 'Telefone ausente no payload',
+      payload: { gatilho, eventType: body.eventType, eventLabel: body.eventLabel },
+    });
+    return;
+  }
+
+  // Adiciona na fila em vez de processar imediatamente
+  fila.push({ gatilho, leadDados });
+  console.log(`📥 [${gatilho}] ${leadDados.nome} adicionado à fila (posição ${fila.length})`);
+
+  // Inicia processamento da fila se não estiver rodando
+  processarFila();
 }
