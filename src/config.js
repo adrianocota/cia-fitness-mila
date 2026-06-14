@@ -36,6 +36,11 @@ export const config = {
     clientToken: process.env.ZAPI_CLIENT_TOKEN,
     baseUrl: `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE_ID}/token/${process.env.ZAPI_TOKEN}`,
   },
+  meta: {
+    token: process.env.META_TOKEN || '',
+    phoneNumberId: process.env.META_PHONE_NUMBER_ID || '',
+    wabaId: process.env.META_WABA_ID || '',
+  },
   mila: {
     phoneNumber: process.env.MILA_PHONE_NUMBER,
     name: 'Mila',
@@ -46,15 +51,10 @@ export const config = {
   },
   mode: process.env.MILA_MODE || 'test',
   testPhoneNumber: process.env.TEST_PHONE_NUMBER || '',
-
-  // Números de admin que podem interagir com a Mila normalmente.
-  // Separe múltiplos números por vírgula no Railway.
-  // Ex: ADMIN_PHONES=5531999999999,5531888888888
   adminPhones: (process.env.ADMIN_PHONES || '')
     .split(',')
     .map(p => p.trim().replace(/\D/g, ''))
     .filter(Boolean),
-
   server: {
     port: parseInt(process.env.PORT || '3000', 10),
     env: process.env.NODE_ENV || 'development',
@@ -81,3 +81,4 @@ export const isAdminPhone = (phone) => {
 
 console.log(`✅ Config carregada. Modo: ${config.mode.toUpperCase()}`);
 console.log(`✅ Admin phones: ${config.adminPhones.length > 0 ? config.adminPhones.join(', ') : 'nenhum configurado'}`);
+console.log(`✅ Meta API: ${config.meta.phoneNumberId ? 'configurada' : 'não configurada'}`);
