@@ -2,9 +2,15 @@ import { config, isTestMode } from '../config.js';
 import {
   parsearWebhook,
   ehMensagemDeHumano,
-  enviarTexto,
-  enviarImagem,
+  enviarTexto as enviarTextoZapi,
+  enviarImagem as enviarImagemZapi,
 } from '../services/zapi.js';
+import {
+  parsearWebhookMeta,
+  enviarTextoMeta,
+  enviarImagemMeta,
+  marcarComoLida,
+} from '../services/metaApi.js';
 import {
   buscarOuCriarLead,
   buscarHistorico,
@@ -20,6 +26,25 @@ import { buscarPerfil, criarPerfilVazio, formatarPerfilParaPrompt, extrairEAtual
 import { montarSystemPrompt, formatarHistorico } from '../lib/promptBuilder.js';
 import { transferirParaHumano, encerrarLead } from '../lib/escalation.js';
 import { buscarAlunoAtivoPorTelefone } from '../crm/evoService.js';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(config.supabase.url, config.supabase.serviceKey);
+
+// ─── FUNÇÕES DE ENVIO UNIFICADAS (detecta origem automaticamente) ─────────────
+
+async function enviarTexto(phone, message, source = 'zapi') {
+  if (source === 'meta') {
+    return enviarTextoMeta(phone, message);
+  }
+  return enviarTextoZapi(phone, message);
+}
+
+async function enviarImagem(phone, imageUrl, caption = '', source = 'zapi') {
+  if (source === 'meta') {
+    return enviarImagemMeta(phone, imageUrl, caption);
+  }
+  return enviarImagemZapi(phone, imageUrl, caption);
+}
 
 // ─── URLS DE MÍDIA ────────────────────────────────────────────────────────────
 
@@ -38,8 +63,7 @@ const TEXTO_REENVIO_QUADRO  = 'Já te enviei o quadro de aulas antes. Quer que e
 const TEXTO_REENVIO_TABELA  = 'Já te enviei a tabela de planos antes. Quer que eu mande novamente?';
 const TEXTO_REENVIO_FLUXO   = 'Já te enviei o fluxograma antes. Quer que eu mande novamente?';
 
-// ─── PADRÕES DE OFERTA DE MATERIAL (última msg Mila) ─────────────────────────
-// Usados pelo guard de confirmação de material (passo 12b)
+// ─── PADRÕES DE OFERTA DE MATERIAL ───────────────────────────────────────────
 
 const REGEX_OFERTA_QUADRO = /(quer que eu (te )?envie|quer que eu mande|posso (te )?mandar|mando o quadro|envio o quadro|quadro de (horário|aula)|grade (de aula|fixa))/i;
 const REGEX_OFERTA_TABELA = /(quer que eu (te )?envie|quer que eu mande|posso (te )?mandar|mando a tabela|envio a tabela|tabela de planos|comparar os planos|tabela completa)/i;
@@ -50,12 +74,11 @@ const REGEX_OFERTA_FLUXO  = /(quer que eu (te )?envie|quer que eu mande|posso (t
 const DEBOUNCE_MS = 2500;
 const filaDebounce = new Map();
 
-// ─── REGEX MÍNIMOS ────────────────────────────────────────────────────────────
+// ─── REGEX ────────────────────────────────────────────────────────────────────
 
 const REGEX = {
   crise:    /(suicid|me matar|quero morrer|n[ãa]o quero mais viver|tirar minha vida|automutila|me machucar|n[ãa]o aguento mais|acabar com tudo|desaparecer para sempre)/i,
   personal: /\bpersonal\b/i,
-  pagamentosInfo: /(pix.{0,30}(anual|inteiro|vista)|dinheiro.{0,30}(anual|inteiro|vista)|pagar.{0,30}(anual|inteiro).{0,30}vista|quanto.{0,20}(pix|dinheiro|vista)|desconto.{0,20}(pix|dinheiro|vista)|gympass|totalpass|tp2|gym.{0,5}pass)/i,
   confirmacaoReenvio: /^(sim|s|pode|manda|manda sim|quero|quero sim|claro|vai|ok|isso|por favor|pfv|pf|manda de novo|envia|envia sim)$/i,
   confirmacaoMaterial: /^(sim|s|pode|manda|manda sim|quero|quero sim|claro|vai|ok|isso|por favor|pfv|pf|manda de novo|envia|envia sim|pode mandar|manda aí|vai lá|manda pra mim)$/i,
 };
@@ -107,12 +130,9 @@ function diasDeSilencio(lead) {
   return (Date.now() - new Date(lead.ultima_interacao_em).getTime()) / (1000 * 60 * 60 * 24);
 }
 
-// ─── GUARD DE CONFIRMAÇÃO DE REENVIO ─────────────────────────────────────────
-// Só dispara quando:
-//   1. A mensagem do lead é uma confirmação curta (sim, manda, quero, etc.)
-//   2. A última mensagem da Mila foi especificamente uma oferta de reenvio
+// ─── GUARD DE REENVIO ─────────────────────────────────────────────────────────
 
-async function tentarReenvio(phone, lead, conteudo, historicoBruto) {
+async function tentarReenvio(phone, lead, conteudo, historicoBruto, source) {
   if (!REGEX.confirmacaoReenvio.test(conteudo.trim())) return false;
 
   const ultima = ultimaSaidaMila(historicoBruto);
@@ -124,43 +144,35 @@ async function tentarReenvio(phone, lead, conteudo, historicoBruto) {
     const url = tabelaCompletaJaFoiEnviada(historicoBruto) ? TABELA_COMPLETA_URL : TABELA_PLANOS_URL;
     const marker = tabelaCompletaJaFoiEnviada(historicoBruto) ? '[tabela completa enviada]' : '[tabela planos enviada]';
     const texto = tabelaCompletaJaFoiEnviada(historicoBruto) ? TEXTO_TABELA_COMPLETA : TEXTO_TABELA_PLANOS;
-    await enviarImagem(phone, url, ' ');
+    await enviarImagem(phone, url, ' ', source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
-    await enviarTexto(phone, texto);
+    await enviarTexto(phone, texto, source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: texto });
-    console.log(`🔁 Reenvio tabela para lead ${lead.id}`);
     return true;
   }
 
   if (msg === TEXTO_REENVIO_QUADRO) {
-    await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
+    await enviarImagem(phone, QUADRO_AULAS_URL, ' ', source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas reenviado]' });
-    await enviarTexto(phone, TEXTO_QUADRO_AULAS);
+    await enviarTexto(phone, TEXTO_QUADRO_AULAS, source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
-    console.log(`🔁 Reenvio quadro aulas para lead ${lead.id}`);
     return true;
   }
 
   if (msg === TEXTO_REENVIO_FLUXO) {
-    await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
+    await enviarImagem(phone, FLUXOGRAMA_URL, ' ', source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
-    await enviarTexto(phone, TEXTO_FLUXO);
+    await enviarTexto(phone, TEXTO_FLUXO, source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
-    console.log(`🔁 Reenvio fluxograma para lead ${lead.id}`);
     return true;
   }
 
   return false;
 }
 
-// ─── GUARD DE CONFIRMAÇÃO DE MATERIAL (novo) ─────────────────────────────────
-// Dispara quando:
-//   1. A mensagem do lead é uma confirmação curta ("pode mandar", "manda", "sim", etc.)
-//   2. A última mensagem da Mila continha oferta de envio de material (quadro/tabela/fluxo)
-//      MAS não era uma oferta de reenvio explícita (esse caso é tratado por tentarReenvio)
-// Objetivo: evitar que o classificador interprete "pode mandar" como FECHAR
+// ─── GUARD DE MATERIAL ────────────────────────────────────────────────────────
 
-async function tentarEnvioMaterial(phone, lead, conteudo, historicoBruto) {
+async function tentarEnvioMaterial(phone, lead, conteudo, historicoBruto, source) {
   if (!REGEX.confirmacaoMaterial.test(conteudo.trim())) return false;
 
   const ultima = ultimaSaidaMila(historicoBruto);
@@ -168,43 +180,32 @@ async function tentarEnvioMaterial(phone, lead, conteudo, historicoBruto) {
 
   const msg = ultima.conteudo;
 
-  // Não interceptar se já foi tratado pelo guard de reenvio (ofertas explícitas)
-  if (
-    msg === TEXTO_REENVIO_TABELA ||
-    msg === TEXTO_REENVIO_QUADRO ||
-    msg === TEXTO_REENVIO_FLUXO
-  ) return false;
+  if (msg === TEXTO_REENVIO_TABELA || msg === TEXTO_REENVIO_QUADRO || msg === TEXTO_REENVIO_FLUXO) return false;
 
-  // Mila ofereceu o quadro de aulas e ainda não foi enviado
   if (REGEX_OFERTA_QUADRO.test(msg) && !quadroAulasJaFoiEnviado(historicoBruto)) {
-    await enviarImagem(phone, QUADRO_AULAS_URL, ' ');
+    await enviarImagem(phone, QUADRO_AULAS_URL, ' ', source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[quadro aulas enviado]' });
-    await enviarTexto(phone, TEXTO_QUADRO_AULAS);
+    await enviarTexto(phone, TEXTO_QUADRO_AULAS, source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_QUADRO_AULAS });
-    console.log(`📋 Guard material: quadro de aulas enviado para lead ${lead.id}`);
     return true;
   }
 
-  // Mila ofereceu a tabela completa e ainda não foi enviada
   if (REGEX_OFERTA_TABELA.test(msg) && !tabelaCompletaJaFoiEnviada(historicoBruto)) {
     const url = tabelaJaFoiEnviada(historicoBruto) ? TABELA_COMPLETA_URL : TABELA_PLANOS_URL;
     const marker = tabelaJaFoiEnviada(historicoBruto) ? '[tabela completa enviada]' : '[tabela planos enviada]';
     const texto = tabelaJaFoiEnviada(historicoBruto) ? TEXTO_TABELA_COMPLETA : TEXTO_TABELA_PLANOS;
-    await enviarImagem(phone, url, ' ');
+    await enviarImagem(phone, url, ' ', source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
-    await enviarTexto(phone, texto);
+    await enviarTexto(phone, texto, source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: texto });
-    console.log(`📋 Guard material: tabela enviada para lead ${lead.id}`);
     return true;
   }
 
-  // Mila ofereceu o fluxograma e ainda não foi enviado
   if (REGEX_OFERTA_FLUXO.test(msg) && !fluxogramaJaFoiEnviado(historicoBruto)) {
-    await enviarImagem(phone, FLUXOGRAMA_URL, ' ');
+    await enviarImagem(phone, FLUXOGRAMA_URL, ' ', source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: '[fluxograma enviado]' });
-    await enviarTexto(phone, TEXTO_FLUXO);
+    await enviarTexto(phone, TEXTO_FLUXO, source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: TEXTO_FLUXO });
-    console.log(`📋 Guard material: fluxograma enviado para lead ${lead.id}`);
     return true;
   }
 
@@ -227,7 +228,6 @@ async function reformularSeNecessario(textoOriginal, historico) {
 
   if (!identico && !muitoSimilar) return textoOriginal;
 
-  console.log(`🔄 Reformulando (${identico ? 'idêntico' : 'similar ' + similaridade.toFixed(2)})`);
   try {
     const reformulada = await gerarResposta({
       systemPrompt: `Você é Mila, atendente da Cia do Fitness. Reformule a mensagem abaixo com outras palavras, mantendo exatamente o mesmo conteúdo. Seja natural, breve e no estilo WhatsApp brasileiro. Responda APENAS com a mensagem reformulada, sem explicações, sem aspas.
@@ -243,21 +243,21 @@ Mensagem a reformular: "${textoOriginal}"`,
   }
 }
 
-async function enviarTextoComVariacao(phone, lead, texto, historico) {
+async function enviarTextoComVariacao(phone, lead, texto, historico, source) {
   const textoFinal = await reformularSeNecessario(texto, historico);
-  await enviarTexto(phone, textoFinal);
+  await enviarTexto(phone, textoFinal, source);
   await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: textoFinal });
 }
 
-async function enviarMidiaComTexto(phone, lead, url, marker, texto, historico = []) {
+async function enviarMidiaComTexto(phone, lead, url, marker, texto, historico = [], source = 'zapi') {
   const textoFinal = historico.length > 0 ? await reformularSeNecessario(texto, historico) : texto;
-  await enviarImagem(phone, url, ' ');
+  await enviarImagem(phone, url, ' ', source);
   await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: marker });
-  await enviarTexto(phone, textoFinal);
+  await enviarTexto(phone, textoFinal, source);
   await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: textoFinal });
 }
 
-// ─── CLASSIFICADOR UNIFICADO COM CONTEXTO ────────────────────────────────────
+// ─── CLASSIFICADOR ────────────────────────────────────────────────────────────
 
 async function classificarIntencaoComContexto(conteudo, historico, statusLead) {
   const ultimas = historico.slice(-6).map(m => {
@@ -283,21 +283,21 @@ CONTINUAR = qualquer outra coisa, inclusive saudações.
 ` : `
 REGRAS DE CLASSIFICAÇÃO:
 
-FECHAR = lead confirma intenção de pagar/assinar AGORA de forma inequívoca. Ex: "quero assinar", "como pago", "vou fechar", "manda o link pra pagar", "quero fazer a matrícula agora".
-NÃO É FECHAR — use CONTINUAR para: "posso me matricular hoje?", "dá pra começar hoje?", "como funciona a matrícula?", "posso iniciar e depois fazer avaliação?", "posso começar antes da avaliação?", "quando posso começar?", "preciso de atestado?", "o que preciso pra me matricular?", "como funciona o primeiro dia?", "pode mandar", "manda", "sim", "pode", "claro", "vai", "ok" quando em resposta a uma oferta de envio de material — essas são confirmações de recebimento, não intenção de pagamento.
+FECHAR = lead confirma intenção de pagar/assinar AGORA de forma inequívoca.
+NÃO É FECHAR — use CONTINUAR para: perguntas sobre como funciona a matrícula, "pode mandar", "manda", "sim", "pode", "claro", "vai", "ok" quando em resposta a oferta de envio de material.
 
-ENCERRAR = lead desistiu clara e definitivamente. Ex: "não quero mais", "para de me chamar", "fechei em outro lugar".
+ENCERRAR = lead desistiu clara e definitivamente.
 ESCALAR = lead pediu explicitamente falar com humano, quer agendar visita com hora marcada e confirmou, ou insistiu em desconto pela segunda vez.
-TABELA_COMPLETA = lead quer comparar TODOS os planos ou pede a tabela/quadro comparativo. Ex: "qual a vantagem de cada?", "me mostra todos os planos", "qual é melhor?", "me manda o quadro dos planos", "quero ver os planos comparativos", "aqueles dois planos comparativos", "manda a tabela completa", "qual a diferença entre os planos?".
-TABELA_BASICA = lead pergunta sobre preço/planos de forma direta e genérica, SEM pedir comparação e SEM ser day use. Ex: "quanto custa?", "qual o preço?", "tem mensalidade?".
-QUADRO_AULAS = lead quer ver o quadro/grade/horários das aulas coletivas. Ex: "manda o quadro de horários", "quais os horários das aulas", "quando tem aula?".
+TABELA_COMPLETA = lead quer comparar TODOS os planos.
+TABELA_BASICA = lead pergunta sobre preço/planos de forma direta e genérica.
+QUADRO_AULAS = lead quer ver o quadro/grade/horários das aulas coletivas.
 FLUXO = lead quer saber sobre lotação ou horários mais vazios.
-DAYUSE = lead quer visitar ou experimentar por um dia. Ex: "quero conhecer antes", "tem day use?", "qual a diária?".
-CRIANCA = lead pergunta sobre trazer filho, criança (não bebê).
-BEBE = lead pergunta sobre trazer bebê, nenê, recém-nascido.
-MEDICAMENTO = lead menciona remédio ou medicamento de qualquer tipo.
+DAYUSE = lead quer visitar ou experimentar por um dia.
+CRIANCA = lead pergunta sobre trazer filho, criança.
+BEBE = lead pergunta sobre trazer bebê.
+MEDICAMENTO = lead menciona remédio ou medicamento.
 DANCA = lead pergunta sobre aula de dança.
-MODALIDADE_NAO_TEMOS = lead pergunta sobre modalidade que não oferecemos (pilates, yoga, natação, etc).
+MODALIDADE_NAO_TEMOS = lead pergunta sobre modalidade que não oferecemos.
 CONTINUAR = tudo que não se encaixa acima. EM CASO DE DÚVIDA: use CONTINUAR.`;
 
   const resultado = await classificarIntencao(
@@ -316,7 +316,7 @@ MENSAGEM ATUAL DO LEAD: "${conteudo}"
 ${regrasAluno}`
   );
 
-  console.log(`🧠 Intenção classificada: ${resultado} para "${conteudo.slice(0, 60)}" (status: ${statusLead})`);
+  console.log(`🧠 Intenção: ${resultado} para "${conteudo.slice(0, 60)}" (status: ${statusLead})`);
   return resultado;
 }
 
@@ -325,45 +325,55 @@ ${regrasAluno}`
 export async function processarWebhook(webhookBody) {
   console.log('📥 Webhook recebido');
 
-  if (webhookBody.fromMe === true) {
-    console.log('🔕 fromMe=true — disparo próprio ignorado');
-    return;
+  // Detecta origem: Meta ou Z-API
+  const source = webhookBody._source === 'meta' ? 'meta' : 'zapi';
+
+  // Parse da mensagem conforme origem
+  let mensagem;
+  if (source === 'meta') {
+    mensagem = parsearWebhookMeta(webhookBody._rawBody || webhookBody);
+    // Marca como lida no Meta
+    if (mensagem?.messageId) {
+      marcarComoLida(mensagem.messageId).catch(() => {});
+    }
+  } else {
+    if (webhookBody.fromMe === true) {
+      console.log('🔕 fromMe=true — ignorado');
+      return;
+    }
+    if (ehMensagemDeHumano(webhookBody)) {
+      const phone = webhookBody.phone;
+      if (phone) {
+        try {
+          const lead = await buscarOuCriarLead({ telefone: phone });
+          if (!lead) return;
+          const conteudo = webhookBody.text?.message || '[mensagem do humano]';
+          await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'humano', conteudo });
+        } catch (error) {
+          await gravarLog({ contexto: 'webhook', mensagem: 'Erro ao salvar msg humano', telefone: webhookBody.phone, payload: { erro: error.message } });
+        }
+      }
+      return;
+    }
+    mensagem = parsearWebhook(webhookBody);
   }
 
-  const messageId = webhookBody.messageId || webhookBody.id || null;
+  if (!mensagem) return;
+
+  const { phone, nome, conteudo, tipo, messageId } = mensagem;
+
+  // Deduplicação por messageId
   if (messageId) {
     const duplicata = await verificarDuplicata(messageId);
     if (duplicata) return;
   }
 
-  const phoneOrigem = webhookBody.phone || '';
-  if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us') || webhookBody.isGroup) {
-    console.log(`🔕 Grupo ignorado (${phoneOrigem})`);
-    return;
-  }
-
-  if (ehMensagemDeHumano(webhookBody)) {
-    const phone = webhookBody.phone;
-    if (phone) {
-      try {
-        const lead = await buscarOuCriarLead({ telefone: phone });
-        if (!lead) return;
-        const conteudo = webhookBody.text?.message || '[mensagem do humano]';
-        await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'humano', conteudo });
-      } catch (error) {
-        await gravarLog({ contexto: 'webhook', mensagem: 'Erro ao salvar mensagem do humano', telefone: webhookBody.phone, payload: { erro: error.message } });
-      }
-    }
-    return;
-  }
-
-  const mensagem = parsearWebhook(webhookBody);
-  if (!mensagem) return;
-
-  const { phone, nome, conteudo, tipo } = mensagem;
+  // Ignorar grupos
+  const phoneOrigem = phone || '';
+  if (phoneOrigem.includes('-group') || phoneOrigem.includes('@g.us')) return;
 
   if (tipo !== 'texto') {
-    await processarMensagem(phone, nome, conteudo, tipo, webhookBody);
+    await processarMensagem(phone, nome, conteudo, tipo, source);
     return;
   }
 
@@ -372,6 +382,7 @@ export async function processarWebhook(webhookBody) {
 
   if (isTestMode() && phone !== config.testPhoneNumber) return;
 
+  // Debounce
   if (filaDebounce.has(phone)) {
     const fila = filaDebounce.get(phone);
     clearTimeout(fila.timer);
@@ -379,14 +390,14 @@ export async function processarWebhook(webhookBody) {
     fila.timer = setTimeout(async () => {
       const conteudoFinal = fila.conteudos.join(' ');
       filaDebounce.delete(phone);
-      await processarMensagem(phone, nome, conteudoFinal, tipo, webhookBody);
+      await processarMensagem(phone, nome, conteudoFinal, tipo, source);
     }, DEBOUNCE_MS);
   } else {
     const fila = { conteudos: [conteudo], timer: null };
     fila.timer = setTimeout(async () => {
       const conteudoFinal = fila.conteudos.join(' ');
       filaDebounce.delete(phone);
-      await processarMensagem(phone, nome, conteudoFinal, tipo, webhookBody);
+      await processarMensagem(phone, nome, conteudoFinal, tipo, source);
     }, DEBOUNCE_MS);
     filaDebounce.set(phone, fila);
   }
@@ -394,60 +405,56 @@ export async function processarWebhook(webhookBody) {
 
 // ─── PROCESSAMENTO DA MENSAGEM ────────────────────────────────────────────────
 
-async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
+async function processarMensagem(phone, nome, conteudo, tipo, source = 'zapi') {
 
-  // 1. Buscar ou criar lead
   let lead;
   try {
     lead = await buscarOuCriarLead({ telefone: phone, nome: primeiroNome(nome), campanhaOrigem: null });
   } catch (error) {
     console.error('❌ Erro ao buscar/criar lead:', error.message);
-    await gravarLog({ contexto: 'supabase', mensagem: 'Erro ao buscar ou criar lead', telefone: phone, payload: { erro: error.message } });
     return;
   }
-
   if (!lead) return;
 
   const statusNormalizado = lead.status === 'ativo' ? 'mila' : (lead.status === 'transferido' ? 'humano' : lead.status);
 
-  // 2. Lead CRM — silêncio total
+  // CRM — silêncio total
   if (lead.status === 'crm') {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
-    console.log(`🔕 Lead ${lead.id} em modo CRM — mensagem salva, sem resposta`);
+    console.log(`🔕 Lead ${lead.id} em modo CRM — sem resposta`);
     return;
   }
 
-  // 3. Protocolo de crise
+  // Protocolo de crise
   if (REGEX.crise.test(conteudo)) {
     try {
-      await enviarTexto(phone, `Fico feliz que você compartilhou isso comigo. Pensamentos assim são pesados de carregar, e faz sentido querer mudar algo na vida.\n\nSe precisar conversar com alguém especializado, o CVV atende 24h pelo 188 ou pelo chat em cvv.org.br, de graça e com sigilo total.\n\nAqui na Cia, o treino pode ser um caminho pra se cuidar também. Mas o mais importante agora é você estar bem.`);
+      await enviarTexto(phone, `Fico feliz que você compartilhou isso comigo. Pensamentos assim são pesados de carregar, e faz sentido querer mudar algo na vida.\n\nSe precisar conversar com alguém especializado, o CVV atende 24h pelo 188 ou pelo chat em cvv.org.br, de graça e com sigilo total.\n\nAqui na Cia, o treino pode ser um caminho pra se cuidar também. Mas o mais importante agora é você estar bem.`, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
       await transferirParaHumano({ lead, motivo: 'situação de cuidado emocional' });
-      await gravarLog({ nivel: 'aviso', contexto: 'webhook', mensagem: 'Protocolo de crise acionado', telefone: phone, leadId: lead.id });
     } catch (error) {
       console.error('❌ Erro ao tratar crise:', error.message);
     }
     return;
   }
 
-  // 4. Áudio ou imagem
+  // Áudio ou imagem
   if (tipo === 'audio' || tipo === 'imagem') {
-    const variacoesAudio = [
+    const variacoes = [
       'Oi! Não consigo ouvir áudios por aqui, mas pode me mandar em texto que te respondo na hora! 😊',
       'Áudios não consigo processar, mas texto funciona perfeitamente! Me manda em texto. 😊',
       'Por aqui só consigo ler texto — manda sua mensagem escrita que respondo na hora!',
     ];
     try {
       const historicoBrutoAudio = await buscarHistorico(lead.id, 20);
-      const respostasAudio = historicoBrutoAudio.filter(m => m.conteudo?.startsWith('[audio') || m.conteudo?.startsWith('[imagem')).length;
-      const respostaAudio = variacoesAudio[Math.min(respostasAudio, variacoesAudio.length - 1)];
-      await enviarTexto(phone, respostaAudio);
+      const qtd = historicoBrutoAudio.filter(m => m.conteudo?.startsWith('[audio') || m.conteudo?.startsWith('[imagem')).length;
+      const resposta = variacoes[Math.min(qtd, variacoes.length - 1)];
+      await enviarTexto(phone, resposta, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo: `[${tipo}]`, tipo });
     } catch (e) { console.error('❌ Erro áudio:', e.message); }
     return;
   }
 
-  // 5. Lead encerrado — reativar
+  // Lead encerrado — reativar
   if (statusNormalizado === 'encerrado') {
     try {
       const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
@@ -462,7 +469,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
         ? `[CONTEXTO INTERNO: Este lead já conversou há ${diasPassados} dias e voltou. Cumprimente naturalmente e retome onde parou.]\n\nMensagem: ${conteudo}`
         : conteudo;
       const resposta = await gerarResposta({ systemPrompt: montarSystemPrompt(), historico: historicoFormatado, mensagemNova: mensagemFinal });
-      await enviarTexto(phone, resposta);
+      await enviarTexto(phone, resposta, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
     } catch (error) {
       console.error('❌ Erro ao reabrir lead:', error.message);
@@ -470,7 +477,7 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
     return;
   }
 
-  // 6. Lead perdido — reativar como encerrado (mesmo tratamento)
+  // Lead perdido — reativar
   if (statusNormalizado === 'perdido') {
     try {
       const { lead: leadReativado, retomandoContexto, diasPassados } = await reativarLead(lead);
@@ -480,139 +487,107 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
       const historicoFormatado = formatarHistorico(historicoBruto.slice(0, -1));
       const mensagemFinal = `[CONTEXTO INTERNO: Este lead ficou sem resposta e voltou após ${diasPassados} dias. Cumprimente com leveza e retome o contato de forma natural.]\n\nMensagem: ${conteudo}`;
       const resposta = await gerarResposta({ systemPrompt: montarSystemPrompt(), historico: historicoFormatado, mensagemNova: mensagemFinal });
-      await enviarTexto(phone, resposta);
+      await enviarTexto(phone, resposta, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
-      console.log(`🔄 Lead ${lead.id} perdido reativado após ${diasPassados} dias`);
     } catch (error) {
       console.error('❌ Erro ao reativar lead perdido:', error.message);
     }
     return;
   }
 
-  // 7. Lead agendado — só salva, não responde (humano já está cuidando)
+  // Lead agendado — só salva
   if (statusNormalizado === 'agendado') {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
-    console.log(`📅 Lead ${lead.id} com visita agendada — mensagem salva, sem resposta automática`);
     return;
   }
 
-  // 8. Lead transferido — janela de silêncio ou humano ainda ativo
+  // Janela de silêncio pós-transferência
   if (dentroJanelaSilencio(lead)) {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
     return;
   }
 
+  // Humano ativo — só salva
   if (statusNormalizado === 'humano') {
     const humanoAtivo = await ultimaMensagemFoiHumana(lead.id);
     if (humanoAtivo) {
       await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
       return;
     }
-    console.log(`🔄 Lead ${lead.id} retomando com Mila.`);
   }
 
-  // 9. Lead MATRICULADO — modo aluno
+  // Lead matriculado — modo aluno
   if (statusNormalizado === 'matriculado') {
     await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
-
     const historicoBruto = await buscarHistorico(lead.id, 20);
-    const historicoSemUltima = historicoBruto.slice(0, -1);
-    const historicoFormatado = formatarHistorico(historicoSemUltima);
-
+    const historicoFormatado = formatarHistorico(historicoBruto.slice(0, -1));
     const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, 'matriculado');
 
-    if (intencao === 'ENCERRAR') {
-      await encerrarLead(lead, 'aluno pediu para não receber mais mensagens');
-      return;
-    }
-
-    if (intencao === 'ESCALAR') {
-      await transferirParaHumano({ lead, motivo: 'aluno matriculado pediu atendimento humano' });
-      return;
-    }
+    if (intencao === 'ENCERRAR') { await encerrarLead(lead, 'aluno pediu para não receber mais mensagens'); return; }
+    if (intencao === 'ESCALAR') { await transferirParaHumano({ lead, motivo: 'aluno matriculado pediu atendimento humano' }); return; }
 
     try {
-      const systemPromptAluno = montarSystemPrompt(null, 'aluno');
-      const resposta = await gerarResposta({
-        systemPrompt: systemPromptAluno,
-        historico: historicoFormatado,
-        mensagemNova: conteudo,
-      });
+      const resposta = await gerarResposta({ systemPrompt: montarSystemPrompt(null, 'aluno'), historico: historicoFormatado, mensagemNova: conteudo });
       const delay = resposta.length < 80 ? 1000 : resposta.length < 200 ? 2000 : 3000;
       await new Promise(resolve => setTimeout(resolve, delay));
-      await enviarTexto(phone, resposta);
+      await enviarTexto(phone, resposta, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
-    } catch (error) {
-      console.error('❌ Erro ao responder aluno:', error.message);
-    }
+    } catch (error) { console.error('❌ Erro ao responder aluno:', error.message); }
     return;
   }
 
-  // 10. Salvar mensagem (status: mila/ativo)
+  // Salvar mensagem entrada
   await salvarMensagem({ leadId: lead.id, direcao: 'entrada', origem: 'lead', conteudo, tipo });
 
-  // 11. Buscar histórico e perfil
+  // Buscar histórico
   const historicoBruto = await buscarHistorico(lead.id, 20);
 
-  // 11a. GUARD DE ALUNO ATIVO — lead novo sem histórico prévio
-  // Se o número não existia na tabela leads e acabou de ser criado (só 1 mensagem),
-  // consulta o EVO para verificar se é aluno ativo respondendo a um disparo CRM.
-  // Se for aluno, seta status 'crm' e encerra silenciosamente.
+  // Guard aluno EVO (primeiro contato)
   if (historicoBruto.length === 1) {
     try {
       const alunoEvo = await buscarAlunoAtivoPorTelefone(phone);
       if (alunoEvo) {
         await supabase.from('leads').update({ status: 'crm' }).eq('id', lead.id);
-        console.log(`🔕 Lead ${lead.id} identificado como aluno ativo EVO — status setado para crm, sem resposta`);
+        console.log(`🔕 Lead ${lead.id} identificado como aluno EVO — status crm`);
         return;
       }
     } catch (err) {
-      console.warn(`⚠️ Guard aluno EVO falhou para ${phone}: ${err.message} — seguindo como lead normal`);
+      console.warn(`⚠️ Guard aluno EVO falhou: ${err.message}`);
     }
   }
+
   const historicoSemUltima = historicoBruto.slice(0, -1);
   const historicoFormatado = formatarHistorico(historicoSemUltima);
 
   let perfilLead = await buscarPerfil(lead.id);
   if (!perfilLead) perfilLead = await criarPerfilVazio(lead.id);
 
-  // 12a. GUARD DE REENVIO — roda ANTES do classificador
-  // Só age quando: (a) mensagem é confirmação curta E (b) última msg da Mila foi oferta de reenvio explícita
-  const reenvioFeito = await tentarReenvio(phone, lead, conteudo, historicoBruto);
+  // Guards de material (antes do classificador)
+  const reenvioFeito = await tentarReenvio(phone, lead, conteudo, historicoBruto, source);
   if (reenvioFeito) return;
 
-  // 12b. GUARD DE CONFIRMAÇÃO DE MATERIAL — roda ANTES do classificador
-  // Intercepta "pode mandar", "manda", "sim" etc. quando a Mila ofereceu envio de material
-  // Evita que o classificador interprete essas confirmações como FECHAR
-  const materialEnviado = await tentarEnvioMaterial(phone, lead, conteudo, historicoBruto);
+  const materialEnviado = await tentarEnvioMaterial(phone, lead, conteudo, historicoBruto, source);
   if (materialEnviado) return;
 
-  // 13. CLASSIFICAÇÃO UNIFICADA COM CONTEXTO
+  // Classificação
   const intencao = await classificarIntencaoComContexto(conteudo, historicoBruto, statusNormalizado);
 
-  // ─── ROTEAMENTO POR INTENÇÃO ──────────────────────────────────────────────
-
+  // Roteamento
   if (intencao === 'FECHAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
     let respostaAntes = null;
     try {
       respostaAntes = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead quer fechar a matrícula. Responda a última mensagem dele em 1 frase curta e positiva, confirmando que é possível. Não transfira ainda, não explique o processo. Só confirme brevemente. Tom casual de WhatsApp.`,
+        systemPrompt: `Você é Mila. O lead quer fechar a matrícula. Responda em 1 frase curta e positiva confirmando. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
-    } catch (e) {
-      respostaAntes = null;
-    }
+    } catch (e) {}
     await transferirParaHumano({ lead, motivo: 'lead quer fechar matrícula', resumo, respostaAntes });
     return;
   }
 
-  if (intencao === 'ENCERRAR') {
-    await encerrarLead(lead, 'lead expressou desinteresse');
-    return;
-  }
-
+  if (intencao === 'ENCERRAR') { await encerrarLead(lead, 'lead expressou desinteresse'); return; }
   if (intencao === 'ESCALAR') {
     const resumo = await gerarResumoHandoff(lead, perfilLead, historicoFormatado).catch(() => null);
     await transferirParaHumano({ lead, motivo: 'gatilho detectado pelo classificador', resumo });
@@ -620,140 +595,90 @@ async function processarMensagem(phone, nome, conteudo, tipo, webhookBody) {
   }
 
   if (intencao === 'TABELA_COMPLETA') {
-    try {
-      if (!tabelaCompletaJaFoiEnviada(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBruto);
-        return;
-      } else {
-        console.log(`📋 Tabela completa já enviada — respondendo pergunta específica via GPT (lead ${lead.id})`);
-      }
-    } catch (e) { console.error('❌ Tabela completa:', e.message); return; }
+    if (!tabelaCompletaJaFoiEnviada(historicoBruto)) {
+      await enviarMidiaComTexto(phone, lead, TABELA_COMPLETA_URL, '[tabela completa enviada]', TEXTO_TABELA_COMPLETA, historicoBruto, source);
+      return;
+    }
   }
 
   if (intencao === 'TABELA_BASICA') {
-    try {
-      if (!tabelaJaFoiEnviada(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto);
-        return;
-      } else {
-        console.log(`📋 Tabela básica já enviada — respondendo pergunta específica via GPT (lead ${lead.id})`);
-      }
-    } catch (e) { console.error('❌ Tabela básica:', e.message); return; }
+    if (!tabelaJaFoiEnviada(historicoBruto)) {
+      await enviarMidiaComTexto(phone, lead, TABELA_PLANOS_URL, '[tabela planos enviada]', TEXTO_TABELA_PLANOS, historicoBruto, source);
+      return;
+    }
   }
 
   if (intencao === 'QUADRO_AULAS') {
-    try {
-      if (!quadroAulasJaFoiEnviado(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto);
-        return;
-      } else {
-        console.log(`📋 Quadro de aulas já enviado — respondendo pergunta específica via GPT (lead ${lead.id})`);
-      }
-    } catch (e) { console.error('❌ Quadro aulas:', e.message); return; }
+    if (!quadroAulasJaFoiEnviado(historicoBruto)) {
+      await enviarMidiaComTexto(phone, lead, QUADRO_AULAS_URL, '[quadro aulas enviado]', TEXTO_QUADRO_AULAS, historicoBruto, source);
+      return;
+    }
   }
 
   if (intencao === 'FLUXO') {
-    try {
-      if (!fluxogramaJaFoiEnviado(historicoBruto)) {
-        await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto);
-        return;
-      } else {
-        console.log(`📋 Fluxograma já enviado — respondendo pergunta específica via GPT (lead ${lead.id})`);
-      }
-    } catch (e) { console.error('❌ Fluxograma:', e.message); return; }
+    if (!fluxogramaJaFoiEnviado(historicoBruto)) {
+      await enviarMidiaComTexto(phone, lead, FLUXOGRAMA_URL, '[fluxograma enviado]', TEXTO_FLUXO, historicoBruto, source);
+      return;
+    }
   }
 
   if (intencao === 'DAYUSE') {
-    const respostasDayUse = historicoBruto
-      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
-        (m.conteudo.toLowerCase().includes('diária') || m.conteudo.toLowerCase().includes('day use') || m.conteudo.toLowerCase().includes('r$ 30')))
-      .slice(-2).map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaDayUse = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente da Cia do Fitness.
-O lead quer saber sobre diária (day use).
-INFORMAÇÕES: Valor R$ 30,00. Inclui musculação e aulas coletivas. Não precisa agendar.
-VOCÊ JÁ DISSE (NÃO REPITA): ${respostasDayUse}
-Máximo 2-3 frases. Tom casual de WhatsApp.`,
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. INFORMAÇÕES: Diária R$ 30,00. Inclui musculação e aulas coletivas. Não precisa agendar. Máximo 2-3 frases. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
-      await enviarTexto(phone, respostaDayUse);
+      await enviarTexto(phone, respostaDayUse, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaDayUse });
     } catch (e) { console.error('❌ Day use:', e.message); }
     return;
   }
 
   if (intencao === 'CRIANCA') {
-    try {
-      await enviarTextoComVariacao(phone, lead, 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.', historicoBruto);
-    } catch (e) { console.error('❌ Criança:', e.message); }
+    await enviarTextoComVariacao(phone, lead, 'Por motivo de segurança, criança não pode entrar na área de treino, mas pode aguardar no banco de espera na recepção, pertinho de você.', historicoBruto, source);
     return;
   }
 
   if (intencao === 'BEBE') {
-    try {
-      await enviarTextoComVariacao(phone, lead, 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade. Eles vão te receber bem!', historicoBruto);
-    } catch (e) { console.error('❌ Bebê:', e.message); }
+    await enviarTextoComVariacao(phone, lead, 'Geralmente não é permitido levar bebê para a área de treino. Mas cada caso é um caso — recomendo passar pessoalmente e conversar com nossa equipe de direção pra ver se há alguma possibilidade.', historicoBruto, source);
     return;
   }
 
   if (intencao === 'MEDICAMENTO') {
-    const respostasAnteriresMed = historicoBruto
-      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
-        (m.conteudo.toLowerCase().includes('médico') || m.conteudo.toLowerCase().includes('medicamento') ||
-         m.conteudo.toLowerCase().includes('remédio') || m.conteudo.toLowerCase().includes('opinar')))
-      .map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaMed = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente virtual da Cia do Fitness.
-O lead mencionou um medicamento. REGRA ABSOLUTA: nunca opina sobre medicamentos.
-VOCÊ JÁ DISSE (NÃO REPITA): ${respostasAnteriresMed}
-Responda com 1-2 frases dizendo que isso é com o médico. Tom casual de WhatsApp.`,
+        systemPrompt: `Você é Mila, atendente virtual da Cia do Fitness. O lead mencionou um medicamento. REGRA ABSOLUTA: nunca opina sobre medicamentos. Responda com 1-2 frases dizendo que isso é com o médico. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
-      await enviarTexto(phone, respostaMed);
-      await salvarMensagem({ leadId: lead.id, direcao: 'mila', origem: 'mila', conteudo: respostaMed });
+      await enviarTexto(phone, respostaMed, source);
+      await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaMed });
     } catch (e) { console.error('❌ Medicamento:', e.message); }
     return;
   }
 
   if (intencao === 'DANCA') {
-    const respostasDanca = historicoBruto
-      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
-        m.conteudo.toLowerCase().includes('zumba'))
-      .slice(-2).map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaDanca = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre dança.
-Não temos dança específica, mas temos Zumba no Fast Training.
-VOCÊ JÁ DISSE (NÃO REPITA): ${respostasDanca}
-1-2 frases. Tom casual de WhatsApp.`,
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre dança. Não temos dança específica, mas temos Zumba no Fast Training. 1-2 frases. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
-      await enviarTexto(phone, respostaDanca);
+      await enviarTexto(phone, respostaDanca, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaDanca });
     } catch (e) { console.error('❌ Dança:', e.message); }
     return;
   }
 
   if (intencao === 'MODALIDADE_NAO_TEMOS') {
-    const respostasModais = historicoBruto
-      .filter(m => m.direcao === 'saida' && m.origem === 'mila' && m.conteudo &&
-        (m.conteudo.toLowerCase().includes('não temos') || m.conteudo.toLowerCase().includes('não tem')))
-      .slice(-3).map(m => `- "${m.conteudo}"`).join('\n') || 'nenhuma ainda';
     try {
       const respostaModal = await gerarResposta({
-        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre modalidade que não oferecemos.
-Nossas aulas: Jump, Combat, Zumba, Funcional e CardioMix (Fast Training, 30 min).
-VOCÊ JÁ DISSE (NÃO REPITA): ${respostasModais}
-Máximo 2 frases. Tom casual de WhatsApp.`,
+        systemPrompt: `Você é Mila, atendente da Cia do Fitness. O lead perguntou sobre modalidade que não oferecemos. Nossas aulas: Jump, Combat, Zumba, Funcional e CardioMix (Fast Training, 30 min). Máximo 2 frases. Tom casual de WhatsApp.`,
         historico: historicoFormatado,
         mensagemNova: conteudo,
       });
-      await enviarTexto(phone, respostaModal);
+      await enviarTexto(phone, respostaModal, source);
       await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: respostaModal });
     } catch (e) { console.error('❌ Modalidade:', e.message); }
     return;
@@ -773,17 +698,15 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
     resposta = await gerarResposta({ systemPrompt, historico: historicoFormatado, mensagemNova: mensagemComContexto });
   } catch (error) {
     console.error('❌ Erro ao gerar resposta:', error.message);
-    await gravarLog({ contexto: 'openai', mensagem: 'Erro ao gerar resposta', telefone: phone, leadId: lead.id, payload: { erro: error.message } });
     resposta = `Oi${lead.nome ? ', ' + lead.nome : ''}! Tive uma instabilidade aqui. Pode me chamar de novo em alguns minutos? 🙏`;
   }
 
   try {
-    const tamanho = resposta.length;
-    const delay = tamanho < 80 ? 1000 : tamanho < 200 ? 2000 : 3000;
+    const delay = resposta.length < 80 ? 1000 : resposta.length < 200 ? 2000 : 3000;
     await new Promise(resolve => setTimeout(resolve, delay));
-    await enviarTexto(phone, resposta);
+    await enviarTexto(phone, resposta, source);
     await salvarMensagem({ leadId: lead.id, direcao: 'saida', origem: 'mila', conteudo: resposta });
-    console.log(`✅ Mila respondeu pro lead ${lead.id} (delay: ${delay}ms)`);
+    console.log(`✅ Mila respondeu lead ${lead.id} via ${source}`);
 
     const totalMensagens = historicoBruto.length;
     if (totalMensagens % 3 === 0 || totalMensagens <= 3) {
@@ -792,6 +715,5 @@ Máximo 2 frases. Tom casual de WhatsApp.`,
     }
   } catch (error) {
     console.error('❌ Erro ao enviar resposta:', error.message);
-    await gravarLog({ contexto: 'zapi', mensagem: 'Erro ao enviar resposta', telefone: phone, leadId: lead.id, payload: { erro: error.message } });
   }
 }
