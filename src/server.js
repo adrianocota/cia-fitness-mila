@@ -77,6 +77,81 @@ app.post('/evo-crm', async (req, res) => {
 });
 
 // ================================================
+// ROTA WEBHOOK — API OFICIAL WHATSAPP (META)
+// ================================================
+
+const WEBHOOK_META_TOKEN = 'mila_cia_fitness_2026';
+
+// GET — verificação do webhook pelo Meta
+app.get('/webhook-meta', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  console.log('🔍 Meta webhook verify:', { mode, token });
+
+  if (mode === 'subscribe' && token === WEBHOOK_META_TOKEN) {
+    console.log('✅ Meta webhook verificado com sucesso');
+    res.status(200).send(challenge);
+  } else {
+    console.warn('❌ Meta webhook token inválido');
+    res.status(403).send('Forbidden');
+  }
+});
+
+// POST — recebe mensagens da API Oficial
+app.post('/webhook-meta', async (req, res) => {
+  res.status(200).json({ received: true });
+  try {
+    const body = req.body;
+    console.log('📨 Meta webhook recebido:', JSON.stringify(body).slice(0, 500));
+
+    // Extrai mensagens do payload Meta
+    const entry = body?.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+
+    if (!value?.messages?.length) return; // ping de status, ignora
+
+    const msg = value.messages[0];
+    const contato = value.contacts?.[0];
+    const telefone = msg.from; // formato: 5531999999999
+    const nome = contato?.profile?.name || '';
+    const tipo = msg.type;
+
+    let texto = '';
+    if (tipo === 'text') {
+      texto = msg.text?.body || '';
+    } else if (tipo === 'audio') {
+      texto = '[audio]';
+    } else if (tipo === 'image') {
+      texto = '[imagem]';
+    } else {
+      texto = `[${tipo}]`;
+    }
+
+    console.log(`📱 Meta | ${telefone} (${nome}): ${texto}`);
+
+    // Monta payload no formato esperado pelo webhookHandler (compatível com Z-API)
+    const payloadCompativel = {
+      _source: 'meta', // marcador para diferenciar de Z-API
+      phone: telefone,
+      name: nome,
+      text: { message: texto },
+      isGroup: false,
+      fromMe: false,
+      momment: Date.now(),
+      messageId: msg.id,
+      type: tipo,
+    };
+
+    await processarWebhook(payloadCompativel);
+  } catch (e) {
+    console.error('❌ Meta webhook:', e.message);
+  }
+});
+
+// ================================================
 // ROTA TRANSMISSÃO MANUAL
 // ================================================
 
@@ -109,6 +184,7 @@ if (config.server.env === 'production') {
   console.log('✅ Cron follow-up agendado (9h–20h, seg–sáb)');
   console.log('✅ Cron CRM agendado (08h diário)');
   console.log('✅ CRM via webhook EVO CRM 2.0 — aguardando eventos em /evo-crm');
+  console.log('✅ API Oficial WhatsApp — aguardando eventos em /webhook-meta');
 } else {
   console.log('🧪 Development: crons desabilitados');
 }
@@ -122,7 +198,7 @@ app.listen(PORT, () => {
   console.log('═══════════════════════════════════════');
   console.log('🚀 Cia Fitness Mila — Backend iniciado');
   console.log(`📍 ${PORT} | 🌍 ${config.server.env} | 🎯 ${config.mode.toUpperCase()}`);
-  console.log('🔌 /webhook (Z-API) | 📋 /evo-crm (EVO) | 📊 /dashboard');
+  console.log('🔌 /webhook (Z-API) | /webhook-meta (Meta) | 📋 /evo-crm (EVO) | 📊 /dashboard');
   console.log('═══════════════════════════════════════');
 });
 
